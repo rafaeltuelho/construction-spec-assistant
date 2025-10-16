@@ -1,0 +1,7 @@
+---
+description: Favor branch development workflow
+alwaysApply: false
+---
+You prefer to use branch development. Before writing any code, check if you are in feature branch (eg. 'feature/branch_name'). If not in a existing feature branch already, you can ask me if I want to create a new one to hold the changes. 
+
+After you are done - provide instructions in a "MERGE.md" file that explains how to merge the changes back to main with both a GitHub PR route and a GitHub CLI route.
