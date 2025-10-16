@@ -482,6 +482,145 @@ LOG_LEVEL=DEBUG
 ENABLE_VERIFICATION=false
 ENABLE_CACHING=false
 DEBUG_MODE=true
+
+# Sample data paths for testing
+SAMPLE_DATA_PATH=./data/
+SAMPLE_SPECIFICATION=./data/Spec 14 24 00 - Hydraulic Elevators.pdf
+SAMPLE_DRAWINGS=./data/Architectural Drawings.pdf
+SAMPLE_SUBMITTAL=./data/Submittal and Product Description.pdf
+```
+
+## Sample Data Integration
+
+### Test Data Setup
+
+The system includes sample construction documents in the `data/` folder for testing and development:
+
+#### Available Sample Documents
+
+1. **Specification Document**
+   - **File**: `data/Spec 14 24 00 - Hydraulic Elevators.pdf`
+   - **Type**: Construction specification (CSI Division 14 24 00)
+   - **Pages**: 6 pages
+   - **Format**: Bluebeam Revu x64, PDF 1.7
+   - **Content**: Hydraulic elevator specifications with capacity, speed, and installation requirements
+
+2. **Architectural Drawings**
+   - **File**: `data/Architectural Drawings.pdf`
+   - **Type**: Architectural drawing set
+   - **Pages**: 8 pages
+   - **Format**: PDF 1.4, large format (2160 x 3024 points)
+   - **Content**: Floor plans with elevator locations, dimensions, and annotations
+
+3. **Submittal Document**
+   - **File**: `data/Submittal and Product Description.pdf`
+   - **Type**: Contractor submittal
+   - **Format**: Binary PDF with manufacturer data
+   - **Content**: Product specifications and technical data sheets
+
+### Sample Data Loading Script
+
+```bash
+#!/bin/bash
+# scripts/load_sample_data.sh
+
+echo "Loading sample construction documents..."
+
+# Check if sample data exists
+if [ ! -d "data" ]; then
+    echo "Error: data/ directory not found"
+    exit 1
+fi
+
+# Upload sample specification
+echo "Uploading hydraulic elevator specification..."
+curl -X POST "http://localhost:8000/documents/upload" \
+  -F "file=@data/Spec 14 24 00 - Hydraulic Elevators.pdf" \
+  -F "document_type=specification" \
+  -F "metadata={\"csi_division\":\"14 24 00\",\"project_name\":\"Sample Project\"}"
+
+# Upload sample drawings
+echo "Uploading architectural drawings..."
+curl -X POST "http://localhost:8000/documents/upload" \
+  -F "file=@data/Architectural Drawings.pdf" \
+  -F "document_type=drawing" \
+  -F "metadata={\"csi_division\":\"14 24 00\",\"drawing_type\":\"floor_plan\"}"
+
+# Upload sample submittal
+echo "Uploading submittal document..."
+curl -X POST "http://localhost:8000/documents/upload" \
+  -F "file=@data/Submittal and Product Description.pdf" \
+  -F "document_type=submittal" \
+  -F "metadata={\"csi_division\":\"14 24 00\",\"manufacturer\":\"Sample Manufacturer\"}"
+
+echo "Sample data loading completed!"
+```
+
+### Expected Processing Results
+
+After processing the sample documents, the system should extract:
+
+#### From Hydraulic Elevator Specification:
+```json
+{
+  "document_id": "doc_spec_14_24_00_001",
+  "facts_extracted": [
+    {
+      "topic": "hydraulic_elevator",
+      "attribute": "capacity_lbs",
+      "value": 2500,
+      "unit": "lbs",
+      "csi_division": "14 24 00"
+    },
+    {
+      "topic": "hydraulic_elevator", 
+      "attribute": "travel_speed_fpm",
+      "value": 150,
+      "unit": "fpm",
+      "csi_division": "14 24 00"
+    }
+  ],
+  "sections": ["Part 1 - General", "Part 2 - Products", "Part 3 - Execution"]
+}
+```
+
+#### From Architectural Drawings:
+```json
+{
+  "document_id": "doc_drawings_001",
+  "page_count": 8,
+  "page_rotation": 90,
+  "media_box": {"width": 2160, "height": 3024},
+  "annotation_count": 97,
+  "xobject_count": 5,
+  "csi_divisions": ["14 24 00"]
+}
+```
+
+### Test Scenarios
+
+#### 1. Document Upload Test
+```bash
+# Test uploading each sample document
+python -m pytest tests/test_document_upload.py -v
+```
+
+#### 2. Fact Extraction Test
+```bash
+# Test fact extraction from elevator specification
+python -m pytest tests/test_fact_extraction.py::test_elevator_facts -v
+```
+
+#### 3. Search Test
+```bash
+# Test CSI division search
+python -m pytest tests/test_search.py::test_csi_search -v
+```
+
+#### 4. Document Comparison Test
+```bash
+# Test comparing specification with submittal
+python -m pytest tests/test_comparison.py::test_elevator_comparison -v
 ```
 
 ## CLI Development Mode

@@ -261,6 +261,83 @@ LOG_LEVEL=INFO
 - Backup and disaster recovery procedures
 - CI/CD pipeline integration
 
+## Real Document Examples
+
+### Sample Data Structure
+
+The system is designed to process real-world construction documents found in the `data/` folder:
+
+#### 1. Specification Documents
+- **File**: `Spec 14 24 00 - Hydraulic Elevators.pdf`
+- **Format**: Bluebeam Revu x64, PDF 1.7, 6 pages
+- **Structure**: Standard CSI format (Division 14, Section 24 00)
+- **Content**: 
+  - Part 1: General (administrative, quality, references)
+  - Part 2: Products (materials, equipment, specifications)
+  - Part 3: Execution (installation, testing, protection)
+
+#### 2. Architectural Drawings
+- **File**: `Architectural Drawings.pdf`
+- **Format**: PDF 1.4, 8 pages, large format (2160 x 3024 points)
+- **Features**:
+  - 90-degree page rotation
+  - CAD drawings with multiple layers
+  - 90+ annotations per page
+  - Embedded XObjects (BBA, BBA1, BBA2, etc.)
+  - Floor plans with elevator locations
+  - Dimensions and callouts
+
+#### 3. Submittal Documents
+- **File**: `Submittal and Product Description.pdf`
+- **Format**: Binary PDF with manufacturer data
+- **Content**:
+  - Product specifications
+  - Technical data sheets
+  - Performance certifications
+  - Installation instructions
+
+### Document Processing Requirements
+
+Based on real data analysis, the system must handle:
+
+#### CSI Format Recognition
+```
+Pattern: ^\d{2}\s\d{2}\s\d{2}$
+Examples: "14 24 00", "07 21 00", "03 30 00"
+```
+
+#### Specification Section Patterns
+```
+Part 1: General (administrative, quality, references)
+Part 2: Products (materials, equipment, mixes)
+Part 3: Execution (preparation, installation, protection)
+```
+
+#### Drawing Metadata Patterns
+```
+- MediaBox dimensions: [0 0 width height]
+- Rotation: 0, 90, 180, 270 degrees
+- Annotations: Text, callouts, dimensions
+- XObjects: Embedded drawings, details, symbols
+```
+
+#### Real-World Fact Examples
+From Hydraulic Elevator Specification:
+```json
+{
+  "topic": "hydraulic_elevator",
+  "attribute": "capacity_lbs",
+  "operator": "=",
+  "value": 2500,
+  "unit": "lbs",
+  "source": {
+    "pdf": "Spec_14_24_00_Hydraulic_Elevators.pdf",
+    "page": 2,
+    "span": "Part 2, Section 2.1.A"
+  }
+}
+```
+
 ## Integration Points
 
 ### Frontend Integration

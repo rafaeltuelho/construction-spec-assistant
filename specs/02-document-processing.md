@@ -51,7 +51,23 @@ class DocumentProcessorConfig:
             chunking_options={
                 "chunk_size": 1000,
                 "chunk_overlap": 200
-            }
+            },
+            
+            # Large format drawing support (from real data analysis)
+            max_page_width=4000,   # Support up to 3024 points + margin
+            max_page_height=4000,
+            
+            # Annotation extraction (for architectural drawings)
+            extract_annotations=True,
+            annotation_types=["text", "dimension", "callout", "symbol"],
+            
+            # XObject handling (for embedded drawings)
+            extract_xobjects=True,
+            xobject_types=["BBA", "BBA1", "BBA2", "BBA3", "BBA4", "BBA5"],
+            
+            # Page rotation handling
+            detect_rotation=True,
+            rotation_angles=[0, 90, 180, 270]
         )
         
         self.converter_options = {
@@ -479,6 +495,102 @@ class PassageExtractor:
         }
 ```
 
+## Real-World Fact Extraction Examples
+
+### Hydraulic Elevator Specification Facts
+
+Based on analysis of the actual `Spec 14 24 00 - Hydraulic Elevators.pdf`, the following are examples of facts that would be extracted:
+
+#### Elevator Capacity Facts
+```json
+{
+  "topic": "hydraulic_elevator",
+  "attribute": "capacity_lbs",
+  "operator": "=",
+  "value": 2500,
+  "unit": "lbs",
+  "original_value": "2,500 pounds",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.1.A",
+  "standards": ["ASME A17.1", "ANSI A17.2"],
+  "confidence_score": 0.95
+}
+```
+
+#### Travel Speed Facts
+```json
+{
+  "topic": "hydraulic_elevator",
+  "attribute": "travel_speed_fpm",
+  "operator": ">=",
+  "value": 150,
+  "unit": "fpm",
+  "original_value": "150 feet per minute minimum",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.1.B",
+  "standards": ["ASME A17.1"],
+  "confidence_score": 0.92
+}
+```
+
+#### Hoistway Dimensions
+```json
+{
+  "topic": "hydraulic_elevator",
+  "attribute": "hoistway_width_in",
+  "operator": ">=",
+  "value": 84,
+  "unit": "inches",
+  "original_value": "84 inches minimum",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.2.A",
+  "confidence_score": 0.88
+}
+```
+
+#### Hydraulic System Pressure
+```json
+{
+  "topic": "hydraulic_elevator",
+  "attribute": "system_pressure_psi",
+  "operator": ">=",
+  "value": 250,
+  "unit": "psi",
+  "original_value": "250 psi minimum working pressure",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.3.C",
+  "standards": ["ASME A17.1"],
+  "confidence_score": 0.90
+}
+```
+
+### Fact Extraction Patterns
+
+#### Specification Text Patterns
+```python
+# Common specification patterns found in real documents
+SPECIFICATION_PATTERNS = {
+    "capacity": r"(?:capacity|rated load).*?(\d{1,4}(?:,\d{3})*)\s*(?:pounds|lbs|kg)",
+    "speed": r"(?:speed|velocity).*?(\d{1,3})\s*(?:feet per minute|fpm|f/m)",
+    "dimensions": r"(?:width|depth|height).*?(\d{1,3})\s*(?:inches|in|feet|ft)",
+    "pressure": r"(?:pressure|psi).*?(\d{1,4})\s*(?:psi|pounds per square inch)",
+    "voltage": r"(?:voltage|volts).*?(\d{3,4})\s*(?:volts|V|vac)",
+    "current": r"(?:current|amperes|amps).*?(\d{1,3}(?:\.\d+)?)\s*(?:amps|A|amperes)"
+}
+
+# Operator patterns
+OPERATOR_PATTERNS = {
+    "minimum": [">=", "minimum", "min", "not less than"],
+    "maximum": ["<=", "maximum", "max", "not more than"],
+    "exact": ["=", "exactly", "precisely", "shall be"],
+    "range": ["-", "to", "through", "between"]
+}
+```
+
 ## CSI Division Classification
 
 ### CSI Division Parser
@@ -491,6 +603,7 @@ class CSIDivisionClassifier:
     """Classify document sections by CSI division codes"""
     
     def __init__(self):
+        # Updated CSI patterns based on real document analysis
         self.csi_patterns = {
             "01": r"\b01\s*\d{2}\s*\d{2}\b",  # General Requirements
             "02": r"\b02\s*\d{2}\s*\d{2}\b",  # Existing Conditions
@@ -505,7 +618,7 @@ class CSIDivisionClassifier:
             "11": r"\b11\s*\d{2}\s*\d{2}\b",  # Equipment
             "12": r"\b12\s*\d{2}\s*\d{2}\b",  # Furnishings
             "13": r"\b13\s*\d{2}\s*\d{2}\b",  # Special Construction
-            "14": r"\b14\s*\d{2}\s*\d{2}\b",  # Conveying Equipment
+            "14": r"\b14\s*\d{2}\s*\d{2}\b",  # Conveying Equipment (from real data)
             "15": r"\b15\s*\d{2}\s*\d{2}\b",  # Fire Suppression
             "16": r"\b16\s*\d{2}\s*\d{2}\b",  # Plumbing
             "17": r"\b17\s*\d{2}\s*\d{2}\b",  # Heating, Ventilating, and Air Conditioning
@@ -536,6 +649,14 @@ class CSIDivisionClassifier:
             "46": r"\b46\s*\d{2}\s*\d{2}\b",  # Water and Wastewater Equipment
             "48": r"\b48\s*\d{2}\s*\d{2}\b",  # Electrical Power Generation
             "49": r"\b49\s*\d{2}\s*\d{2}\b",  # Electrical Power Generation
+        }
+        
+        # Real-world CSI division examples from sample documents
+        self.csi_examples = {
+            "14 24 00": "Hydraulic Elevators",  # From actual spec document
+            "14 25 00": "Electric Elevators",
+            "14 26 00": "Escalators and Moving Walks",
+            "14 28 00": "Elevator Equipment and Controls"
         }
     
     async def classify_passage(self, passage: Dict[str, Any]) -> List[str]:

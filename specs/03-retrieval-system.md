@@ -444,6 +444,104 @@ class BM25SearchEngine:
         # Sort by score and limit
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:limit]
+    
+    async def search_csi_divisions(
+        self, 
+        csi_codes: List[str], 
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for CSI division codes (e.g., "14 24 00", "07 21 00")
+        
+        Args:
+            csi_codes: List of CSI division codes
+            limit: Maximum number of results
+            
+        Returns:
+            List of matching passages
+        """
+        results = []
+        
+        for i, passage in enumerate(self.passages):
+            passage_text = passage["text"]
+            
+            # Check for CSI codes in passage
+            matches = []
+            for csi_code in csi_codes:
+                # Look for various CSI code formats
+                patterns = [
+                    csi_code,  # "14 24 00"
+                    csi_code.replace(" ", ""),  # "142400"
+                    csi_code.replace(" ", "-"),  # "14-24-00"
+                ]
+                
+                for pattern in patterns:
+                    if pattern in passage_text:
+                        matches.append(csi_code)
+                        break
+            
+            if matches:
+                result = {
+                    "id": self.passage_metadata[i]["id"],
+                    "score": 1.0,  # High score for exact CSI matches
+                    "text": passage["text"],
+                    "matched_csi_codes": matches,
+                    **self.passage_metadata[i]
+                }
+                results.append(result)
+        
+        return results[:limit]
+    
+    async def search_manufacturer_products(
+        self, 
+        manufacturers: List[str], 
+        product_codes: List[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for manufacturer names and product codes
+        
+        Args:
+            manufacturers: List of manufacturer names
+            product_codes: Optional list of product codes
+            limit: Maximum number of results
+            
+        Returns:
+            List of matching passages
+        """
+        results = []
+        search_terms = set(manufacturer.lower() for manufacturer in manufacturers)
+        
+        if product_codes:
+            search_terms.update(product_code.lower() for product_code in product_codes)
+        
+        for i, passage in enumerate(self.passages):
+            passage_text_lower = passage["text"].lower()
+            
+            # Check for manufacturer/product matches
+            matches = []
+            for term in search_terms:
+                if term in passage_text_lower:
+                    matches.append(term)
+            
+            if matches:
+                # Boost score for manufacturer matches
+                score = len(matches) / len(search_terms)
+                if any(match in [m.lower() for m in manufacturers] for match in matches):
+                    score += 0.3  # Boost for manufacturer names
+                
+                result = {
+                    "id": self.passage_metadata[i]["id"],
+                    "score": min(score, 1.0),
+                    "text": passage["text"],
+                    "matched_terms": matches,
+                    **self.passage_metadata[i]
+                }
+                results.append(result)
+        
+        # Sort by score and limit
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:limit]
 ```
 
 ## Hybrid Retrieval System
@@ -670,6 +768,54 @@ class HybridRetrievalEngine:
         )
         
         return spec_results, submittal_results
+    
+    async def search_elevator_specifications(
+        self, 
+        capacity_lbs: Optional[int] = None,
+        speed_fpm: Optional[int] = None,
+        csi_code: str = "14 24 00"
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for elevator specifications based on real-world parameters
+        
+        Args:
+            capacity_lbs: Elevator capacity in pounds
+            speed_fpm: Travel speed in feet per minute
+            csi_code: CSI division code (default: 14 24 00 for hydraulic elevators)
+            
+        Returns:
+            List of matching specification passages
+        """
+        # Build search query based on parameters
+        search_terms = []
+        
+        if capacity_lbs:
+            search_terms.append(f"{capacity_lbs} pounds")
+            search_terms.append(f"{capacity_lbs:,} lbs")
+        
+        if speed_fpm:
+            search_terms.append(f"{speed_fpm} fpm")
+            search_terms.append(f"{speed_fpm} feet per minute")
+        
+        # Add CSI-specific terms
+        search_terms.extend([
+            "hydraulic elevator",
+            "elevator capacity",
+            "rated load",
+            "travel speed"
+        ])
+        
+        # Combine terms into search query
+        query = " ".join(search_terms)
+        
+        # Search with CSI filter
+        results = await self.search(
+            query=query,
+            csi_divisions=[csi_code],
+            limit=10
+        )
+        
+        return results
 ```
 
 ## Context Pack Assembly

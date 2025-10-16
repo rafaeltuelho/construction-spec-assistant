@@ -49,6 +49,19 @@ class Document(BaseModel):
     sections: List[str] = Field(default_factory=list, description="Document section identifiers")
     csi_divisions: List[str] = Field(default_factory=list, description="CSI division codes")
     
+    # PDF-specific metadata (from real data analysis)
+    pdf_version: Optional[str] = Field(None, description="PDF version (e.g., 1.7, 1.4)")
+    creator: Optional[str] = Field(None, description="PDF creator (e.g., Bluebeam Revu x64)")
+    producer: Optional[str] = Field(None, description="PDF producer (e.g., Bluebeam PDF Library 21)")
+    creation_date: Optional[datetime] = Field(None, description="PDF creation date")
+    modification_date: Optional[datetime] = Field(None, description="PDF modification date")
+    
+    # Drawing-specific metadata
+    page_rotation: Optional[int] = Field(None, description="Page rotation in degrees (0, 90, 180, 270)")
+    media_box: Optional[Dict[str, float]] = Field(None, description="MediaBox dimensions [x1, y1, x2, y2]")
+    annotation_count: Optional[int] = Field(None, description="Total number of annotations")
+    xobject_count: Optional[int] = Field(None, description="Number of embedded XObjects")
+    
     # Indexing status
     vector_indexed: bool = Field(default=False)
     facts_extracted: bool = Field(default=False)
@@ -135,8 +148,8 @@ class Fact(BaseModel):
     passage_id: Optional[str] = Field(None, description="Source passage reference")
     
     # Fact content
-    topic: str = Field(..., description="Subject area (e.g., insulation, concrete)")
-    attribute: str = Field(..., description="Property name (e.g., min_thickness_in)")
+    topic: str = Field(..., description="Subject area (e.g., hydraulic_elevator, insulation, concrete)")
+    attribute: str = Field(..., description="Property name (e.g., capacity_lbs, min_thickness_in)")
     operator: ComparisonOperator = Field(..., description="Comparison operator")
     value: Any = Field(..., description="Fact value")
     value_type: FactType = Field(..., description="Data type of value")
@@ -153,9 +166,18 @@ class Fact(BaseModel):
     span_text: str = Field(..., description="Exact text span from document")
     
     # Classification
-    csi_division: Optional[str] = Field(None, description="CSI division code")
-    section_id: Optional[str] = Field(None, description="Document section")
-    subsection_id: Optional[str] = Field(None, description="Subsection identifier")
+    csi_division: Optional[str] = Field(None, description="CSI division code (e.g., 14 24 00)")
+    section_id: Optional[str] = Field(None, description="Document section (e.g., Part 2)")
+    subsection_id: Optional[str] = Field(None, description="Subsection identifier (e.g., 2.1.A)")
+    
+    # Manufacturer and product information
+    manufacturer: Optional[str] = Field(None, description="Product manufacturer")
+    product_code: Optional[str] = Field(None, description="Manufacturer product code")
+    model_number: Optional[str] = Field(None, description="Model or part number")
+    
+    # Standards and certifications
+    standards: List[str] = Field(default_factory=list, description="Applicable standards (e.g., ASTM, ANSI)")
+    certifications: List[str] = Field(default_factory=list, description="Certifications or approvals")
     
     # Confidence and validation
     confidence_score: float = Field(..., ge=0.0, le=1.0, description="Extraction confidence")
@@ -327,6 +349,153 @@ reviews_indexes = [
 context_packs_indexes = [
     {"review_id": 1},
     {"created_at": -1}
+]
+```
+
+## Real-World Data Examples
+
+### Sample Document Records
+
+#### Hydraulic Elevator Specification Document
+```json
+{
+  "id": "doc_spec_14_24_00_001",
+  "filename": "Spec 14 24 00 - Hydraulic Elevators.pdf",
+  "document_type": "specification",
+  "pdf_version": "1.7",
+  "creator": "Bluebeam Revu x64",
+  "producer": "Bluebeam PDF Library 21",
+  "page_count": 6,
+  "csi_divisions": ["14 24 00"],
+  "sections": ["Part 1 - General", "Part 2 - Products", "Part 3 - Execution"],
+  "metadata": {
+    "creation_date": "2025-01-08T12:55:59-05:00",
+    "modification_date": "2025-01-09T12:18:15-05:00"
+  }
+}
+```
+
+#### Architectural Drawing Document
+```json
+{
+  "id": "doc_drawings_001",
+  "filename": "Architectural Drawings.pdf",
+  "document_type": "drawing",
+  "pdf_version": "1.4",
+  "page_count": 8,
+  "page_rotation": 90,
+  "media_box": {"width": 2160, "height": 3024},
+  "annotation_count": 97,
+  "xobject_count": 5,
+  "csi_divisions": ["14 24 00"],
+  "metadata": {
+    "drawing_type": "floor_plan",
+    "contains_elevator": true
+  }
+}
+```
+
+### Sample Fact Records
+
+#### Hydraulic Elevator Capacity Fact
+```json
+{
+  "id": "fact:14-24-00:2.1.A:capacity",
+  "topic": "hydraulic_elevator",
+  "attribute": "capacity_lbs",
+  "operator": "=",
+  "value": 2500,
+  "value_type": "numeric",
+  "unit": "lbs",
+  "original_value": "2,500 pounds",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.1.A",
+  "manufacturer": "Otis Elevator Company",
+  "standards": ["ASME A17.1", "ANSI A17.2"],
+  "source": {
+    "pdf": "Spec_14_24_00_Hydraulic_Elevators.pdf",
+    "page": 2,
+    "span": "Part 2, Section 2.1.A"
+  },
+  "confidence_score": 0.95
+}
+```
+
+#### Elevator Speed Specification
+```json
+{
+  "id": "fact:14-24-00:2.1.B:speed",
+  "topic": "hydraulic_elevator",
+  "attribute": "travel_speed_fpm",
+  "operator": ">=",
+  "value": 150,
+  "value_type": "numeric",
+  "unit": "fpm",
+  "original_value": "150 feet per minute minimum",
+  "csi_division": "14 24 00",
+  "section_id": "Part 2",
+  "subsection_id": "2.1.B",
+  "standards": ["ASME A17.1"],
+  "source": {
+    "pdf": "Spec_14_24_00_Hydraulic_Elevators.pdf",
+    "page": 2,
+    "span": "Part 2, Section 2.1.B"
+  },
+  "confidence_score": 0.92
+}
+```
+
+### CSI Division Classification Patterns
+
+#### Standard CSI Format Recognition
+```python
+# CSI Division Pattern (from real data analysis)
+CSI_PATTERN = r'^\d{2}\s\d{2}\s\d{2}$'
+
+# Examples from real documents:
+CSI_EXAMPLES = [
+    "14 24 00",  # Hydraulic Elevators
+    "07 21 00",  # Thermal Insulation
+    "03 30 00",  # Cast-in-Place Concrete
+    "08 11 00",  # Metal Doors and Frames
+    "09 68 00",  # Carpeting
+    "11 53 00",  # Residential Appliances
+    "16 22 00",  # Plumbing Fixtures
+    "17 23 00",  # HVAC Piping and Pumps
+    "18 51 00",  # Interior Lighting
+    "23 05 00"   # Common Work Results for HVAC
+]
+
+# Specification Section Patterns
+SPEC_SECTION_PATTERNS = {
+    "Part 1": "General",
+    "Part 2": "Products", 
+    "Part 3": "Execution"
+}
+```
+
+#### Drawing Annotation Patterns
+```python
+# Drawing annotation types (from real data analysis)
+ANNOTATION_TYPES = [
+    "text_callout",      # Text annotations with leaders
+    "dimension",         # Dimension lines and text
+    "symbol",           # Standard symbols
+    "detail_reference",  # Detail callouts
+    "elevation_marker",  # Elevation markers
+    "grid_line",        # Grid line references
+    "section_marker"    # Section cut markers
+]
+
+# XObject types found in architectural drawings
+XOBJECT_TYPES = [
+    "BBA",   # Main drawing content
+    "BBA1",  # Detail drawings
+    "BBA2",  # Additional details
+    "BBA3",  # Section views
+    "BBA4",  # Elevation views
+    "BBA5"   # Plan views
 ]
 ```
 
