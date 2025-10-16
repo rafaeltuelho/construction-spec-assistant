@@ -1,0 +1,23 @@
+# Jupyter Notebook Dependencies for Document Processing Prototype
+
+# Core document processing
+docling>=1.0.0
+docling-core>=1.0.0
+pymupdf>=1.23.0
+pillow>=10.0.0
+
+# Utilities
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+matplotlib>=3.7.0
+IPython>=8.0.0
+
+# Jupyter notebook
+jupyter>=1.0.0
+notebook>=6.5.0
+
+# Optional: Enhanced notebook features
+ipywidgets>=8.0.0
+plotly>=5.0.0
