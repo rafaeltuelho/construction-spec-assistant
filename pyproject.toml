@@ -3,28 +3,51 @@ name = "construction-spec-assistant"
 version = "0.1.0"
 requires-python = "==3.13.*"
 dependencies = [
+    # FastAPI and web framework
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # Document processing
     "docling>=2.0.0",
     "docling-core>=2.0.0",
     "easyocr>=1.7.2",
-    "fastembed>=0.7.3",
-    "ipython>=8.0.0",
-    "ipywidgets>=8.0.0",
-    "jupyter>=1.0.0",
+    "pymupdf>=1.23.0",
+    "pillow>=10.0.0",
+    
+    # LLM and AI
+    "langchain-core>=0.4",
     "langchain-community>=0.4",
     "langchain-openai>=1.0.0",
     "langchain-qdrant>=1.0.0",
     "langgraph>=1.0.0",
     "langsmith>=0.4.37",
-    "matplotlib>=3.7.0",
-    "notebook>=6.5.0",
-    "numpy>=1.24.0",
-    "pandas>=2.0.0",
-    "pillow>=10.0.0",
-    "pint>=0.25",
-    "pip>=25.2",
-    "plotly>=5.0.0",
-    "pymupdf>=1.23.0",
+    "openai>=1.0.0",
     "tiktoken>=0.12.0",
+    
+    # Vector store and embeddings
+    "qdrant-client>=1.7.0",
+    "fastembed>=0.7.3",
+    
+    # Data processing
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pint>=0.25",
+    "pyyaml>=6.0.0",
+    
+    # Development and notebook
+    "jupyter>=1.0.0",
+    "ipython>=8.0.0",
+    "ipywidgets>=8.0.0",
+    "notebook>=6.5.0",
+    "matplotlib>=3.7.0",
+    "plotly>=5.0.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "nest-asyncio>=1.5.0",
 ]
 
 [dependency-groups]
