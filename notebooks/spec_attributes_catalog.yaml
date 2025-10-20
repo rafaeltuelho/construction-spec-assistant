@@ -1,0 +1,47 @@
+# attributes.catalog.yaml
+attributes:
+  rated_load:
+    synonyms: ["rated load", "capacity", "rated capacity", "load capacity"]
+    value_type: quantity
+    unit_hints: ["lb", "kg"]
+
+  rated_speed_up:
+    synonyms: ["rated speed up", "up speed", "speed (up)"]
+    value_type: quantity
+    unit_hints: ["fpm", "m/s"]
+
+  rated_speed_down:
+    synonyms: ["rated speed down", "down speed", "speed (down)"]
+    value_type: quantity
+    unit_hints: ["fpm", "m/s"]
+
+
+  hoistway_entrance_width:
+    synonyms: ["hoistway entrance width", "door width", "opening width"]
+    value_type: quantity
+    unit_hints: ["in", "mm"]
+
+  hoistway_entrance_height:
+    synonyms: ["hoistway entrance height", "door height", "opening height"]
+    value_type: quantity
+    unit_hints: ["in", "mm"]
+
+  finish_car_fixtures:
+    synonyms: ["car fixtures", "fixtures finish", "car fixture finish"]
+    value_type: text
+
+  # some general-purpose ones (useful across CSI divisions)
+  voltage:
+    synonyms: ["voltage", "supply voltage", "line voltage", "V"]
+    value_type: quantity
+    unit_hints: ["V"]
+
+  horsepower:
+    synonyms: ["horsepower", "hp"]
+    value_type: quantity
+    unit_hints: ["hp"]
+
+  pressure:
+    synonyms: ["pressure", "static pressure", "operating pressure"]
+    value_type: quantity
+    unit_hints: ["psi", "bar", "kPa"]
