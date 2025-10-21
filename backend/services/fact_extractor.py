@@ -8,6 +8,7 @@ from pathlib import Path
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from pydantic import ValidationError
 
 from ..models.facts import Fact, Entity, Attribute, Value, Context
 from ..utils.constraint_parser import apply_ranges_inequalities
@@ -282,7 +283,18 @@ class FactExtractor:
             # Convert to dicts for normalization, then back to Facts
             fact_dicts = [f.model_dump() for f in all_facts]
             fact_dicts = apply_ranges_inequalities(fact_dicts)
-            all_facts = [Fact(**d) for d in fact_dicts]
+            
+            # Add safety check before recreating Fact objects
+            validated_facts = []
+            for d in fact_dicts:
+                try:
+                    validated_facts.append(Fact(**d))
+                except ValidationError as ve:
+                    logger.warning(f"Skipping invalid fact after normalization: {ve}")
+                    logger.debug(f"Invalid fact data: {d}")
+                    continue
+            
+            all_facts = validated_facts
 
         all_facts = self.dedupe_facts(all_facts)
 

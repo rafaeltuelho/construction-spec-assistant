@@ -106,14 +106,26 @@ def apply_ranges_inequalities(facts: List[Dict[str, Any]]) -> List[Dict[str, Any
         v = f.get("value", {})
         raw = v.get("raw") or ""
         parsed = parse_value_constraints(raw)
+        
         # merge: keep original raw, but update structured fields
         f["op"] = parsed.get("op", f.get("op", "="))
-        # keep both raw + structured
-        f["value"]["type"] = parsed["value"]["type"]
+        
+        # Ensure value object exists and has required fields
+        if "value" not in f:
+            f["value"] = {}
+        
+        # Always set the type field - this is the key fix
+        f["value"]["type"] = parsed["value"].get("type", "text")
+        
         # copy numeric fields if present
         for k in ["num", "unit", "min", "max"]:
             if k in parsed["value"] and parsed["value"][k] is not None:
                 f["value"][k] = parsed["value"][k]
+        
+        # Ensure raw field is preserved
+        if "raw" not in f["value"]:
+            f["value"]["raw"] = raw
+            
         # add qualifiers if any
         if "qualifiers" in parsed:
             # Ensure qualifiers is a dict (handle None case)
