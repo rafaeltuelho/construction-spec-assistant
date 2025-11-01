@@ -1,7 +1,7 @@
 [project]
 name = "construction-spec-assistant"
 version = "0.1.0"
-requires-python = "==3.13.*"
+requires-python = ">=3.13"
 dependencies = [
     # FastAPI and web framework
     "fastapi>=0.104.1",
@@ -9,34 +9,21 @@ dependencies = [
     "python-multipart>=0.0.6",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    
     # Document processing
     "docling>=2.0.0",
     "docling-core>=2.0.0",
     "easyocr>=1.7.2",
     "pymupdf>=1.23.0",
     "pillow>=10.0.0",
-    
-    # LLM and AI
-    "langchain-core>=0.4",
-    "langchain-community>=0.4",
-    "langchain-openai>=1.0.0",
-    "langchain-qdrant>=1.0.0",
-    "langgraph>=1.0.0",
-    "langsmith>=0.4.37",
     "openai>=1.0.0",
     "tiktoken>=0.12.0",
-    
     # Vector store and embeddings
-    "qdrant-client>=1.7.0",
     "fastembed>=0.7.3",
-    
     # Data processing
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pint>=0.25",
     "pyyaml>=6.0.0",
-    
     # Development and notebook
     "jupyter>=1.0.0",
     "ipython>=8.0.0",
@@ -44,10 +31,22 @@ dependencies = [
     "notebook>=6.5.0",
     "matplotlib>=3.7.0",
     "plotly>=5.0.0",
-    
     # Utilities
     "python-dotenv>=1.0.0",
     "nest-asyncio>=1.5.0",
+    "ragas>=0.3.1",
+    #LangX
+    "langsmith>=0.4.37",
+    "langchain-experimental>=0.3.4",
+    "langchain>=0.3.19",
+    "langchain-cohere==0.4.4",
+    "cohere>=5.12.0,<5.13.0",
+    "langchain-openai>=0.3.7",
+    "qdrant-client>=1.13.2",
+    "rank-bm25>=0.2.2",
+    "langchain-qdrant>=0.2.0",
+    "rapidfuzz>=3.14.1",
+    "json-repair>=0.52.3",
 ]
 
 [dependency-groups]
