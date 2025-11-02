@@ -4,7 +4,8 @@ Configuration management for the Construction Spec Assistant backend.
 Uses Pydantic Settings for environment-based configuration with validation.
 """
 
-from typing import Optional, List
+from typing import List, Optional
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

@@ -4,7 +4,7 @@ Custom exception classes for the Construction Spec Assistant backend.
 These exceptions provide meaningful error messages and proper HTTP status codes.
 """
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 
 class ConstructionSpecAssistantError(Exception):

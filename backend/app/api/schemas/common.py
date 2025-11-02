@@ -4,8 +4,9 @@ Common schemas used across the API.
 These schemas define request/response structures shared by multiple endpoints.
 """
 
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
