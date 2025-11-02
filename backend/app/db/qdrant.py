@@ -6,6 +6,7 @@ using Qdrant vector database with FastEmbed for embeddings.
 """
 
 import asyncio
+import uuid
 from typing import List, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 from qdrant_client import QdrantClient
@@ -84,6 +85,24 @@ async def ensure_collection_exists(
         raise DatabaseError(f"Failed to ensure collection exists: {str(e)}")
 
 
+def _chunk_id_to_uuid(chunk_id: str) -> str:
+    """
+    Convert chunk_id (hash string) to a valid UUID.
+
+    Qdrant requires valid UUIDs for point IDs. We generate a deterministic UUID
+    from the chunk_id hash using UUID5 (namespace-based).
+
+    Args:
+        chunk_id: Chunk identifier (hash string)
+
+    Returns:
+        Valid UUID string
+    """
+    # Use UUID5 with a custom namespace to generate deterministic UUIDs
+    namespace = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # DNS namespace
+    return str(uuid.uuid5(namespace, chunk_id))
+
+
 async def index_chunks_in_qdrant(
     client: QdrantClient,
     chunks: List[DocumentChunk],
@@ -91,34 +110,37 @@ async def index_chunks_in_qdrant(
 ) -> int:
     """
     Index document chunks in Qdrant.
-    
+
     Args:
         client: Qdrant client
         chunks: Chunks to index
         collection_name: Collection name
-    
+
     Returns:
         Number of chunks indexed
-    
+
     Raises:
         DatabaseError: If indexing fails
     """
     try:
         if not chunks:
             return 0
-        
+
         # Ensure collection exists
         await ensure_collection_exists(client, collection_name)
-        
+
         # Generate embeddings
         texts = [chunk.content for chunk in chunks]
         embeddings = await generate_embeddings(texts)
-        
+
         # Create points
         points = []
         for chunk, embedding in zip(chunks, embeddings):
+            # Convert chunk_id to valid UUID for Qdrant
+            point_id = _chunk_id_to_uuid(chunk.chunk_id)
+
             point = PointStruct(
-                id=chunk.chunk_id,
+                id=point_id,
                 vector=embedding,
                 payload={
                     "chunk_id": chunk.chunk_id,
@@ -134,13 +156,13 @@ async def index_chunks_in_qdrant(
                 }
             )
             points.append(point)
-        
+
         # Upsert points
         client.upsert(collection_name=collection_name, points=points)
-        
+
         logger.info(f"Indexed {len(points)} chunks in Qdrant")
         return len(points)
-        
+
     except Exception as e:
         logger.error(f"Failed to index chunks: {str(e)}")
         raise DatabaseError(f"Failed to index chunks: {str(e)}")
