@@ -147,12 +147,30 @@ class ComparisonError(ConstructionSpecAssistantError):
 
 class DatabaseError(ConstructionSpecAssistantError):
     """Base exception for database errors."""
-    
+
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,
             status_code=500,
             error_code="DATABASE_ERROR",
+            details=details
+        )
+
+
+class NotFoundError(ConstructionSpecAssistantError):
+    """Generic exception for resource not found errors."""
+
+    def __init__(self, message: str, resource_type: Optional[str] = None, resource_id: Optional[str] = None):
+        details = {}
+        if resource_type:
+            details["resource_type"] = resource_type
+        if resource_id:
+            details["resource_id"] = resource_id
+
+        super().__init__(
+            message=message,
+            status_code=404,
+            error_code="NOT_FOUND",
             details=details
         )
 
