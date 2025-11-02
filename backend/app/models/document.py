@@ -51,7 +51,10 @@ class DocumentMetadata(BaseModel):
 class ProcessingStats(BaseModel):
     """Statistics from document processing."""
     total_sections: int = Field(default=0)
-    sections_by_level: Dict[int, int] = Field(default_factory=dict)
+    sections_by_level: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Section counts by level (keys are strings for MongoDB compatibility)"
+    )
     total_chunks: int = Field(default=0)
     total_tokens: int = Field(default=0)
     avg_chunk_tokens: float = Field(default=0.0)

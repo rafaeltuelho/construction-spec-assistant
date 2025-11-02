@@ -153,16 +153,23 @@ def validate_sections(sections: List[Section]) -> bool:
 
 
 def count_sections(sections: List[Section]) -> dict:
-    """Count sections by level."""
+    """
+    Count sections by level.
+
+    Returns:
+        Dictionary with string keys (for MongoDB compatibility).
+        MongoDB requires all dictionary keys to be strings.
+    """
     counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-    
+
     def _count(section: Section):
         counts[section.level] += 1
         for subsection in section.subsections:
             _count(subsection)
-    
+
     for section in sections:
         _count(section)
-    
-    return counts
+
+    # Convert integer keys to strings for MongoDB compatibility
+    return {str(k): v for k, v in counts.items()}
 
