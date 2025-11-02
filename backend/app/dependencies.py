@@ -67,13 +67,25 @@ async def get_mongodb_database(
 ) -> AsyncIOMotorDatabase:
     """
     Get MongoDB database instance.
-    
+
     Args:
         client: MongoDB client (injected)
-    
+
     Returns:
         MongoDB database
     """
+    return client[settings.mongodb_database]
+
+
+# Convenience alias for API endpoints
+async def get_mongodb() -> AsyncIOMotorDatabase:
+    """
+    Convenience function to get MongoDB database directly.
+
+    Returns:
+        MongoDB database
+    """
+    client = await get_mongodb_client()
     return client[settings.mongodb_database]
 
 
@@ -125,21 +137,40 @@ async def close_mongodb() -> None:
 async def get_qdrant_client() -> QdrantClient:
     """
     Get Qdrant client instance.
-    
+
     Returns:
         Qdrant client
-    
+
     Raises:
         DatabaseConnectionError: If Qdrant client is not initialized
     """
     global _qdrant_client
-    
+
     if _qdrant_client is None:
         raise DatabaseConnectionError(
             database="Qdrant",
             message="Qdrant client not initialized. Call init_qdrant() on startup."
         )
-    
+
+    return _qdrant_client
+
+
+# Convenience alias for API endpoints
+def get_qdrant() -> QdrantClient:
+    """
+    Convenience function to get Qdrant client directly (synchronous).
+
+    Returns:
+        Qdrant client
+    """
+    global _qdrant_client
+
+    if _qdrant_client is None:
+        raise DatabaseConnectionError(
+            database="Qdrant",
+            message="Qdrant client not initialized. Call init_qdrant() on startup."
+        )
+
     return _qdrant_client
 
 
