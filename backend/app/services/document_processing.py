@@ -206,10 +206,15 @@ async def process_document(
             document_chunks.append(doc_chunk)
         
         await store_document_chunks(mongodb, document_chunks)
-        
-        # Step 6: Index chunks in Qdrant
-        logger.info(f"[{document_id}] Step 6: Indexing in Qdrant")
-        await index_chunks_in_qdrant(qdrant, document_chunks)
+
+        # Step 6: Index chunks in Qdrant (ONLY for submittals/product descriptions, NOT specifications)
+        # Per notebook logic: CSI specs are used for fact extraction only, not vector search
+        # Only submittals/product descriptions are indexed for retrieval
+        if document_type != DocumentType.SPECIFICATION:
+            logger.info(f"[{document_id}] Step 6: Indexing in Qdrant (document type: {document_type.value})")
+            await index_chunks_in_qdrant(qdrant, document_chunks)
+        else:
+            logger.info(f"[{document_id}] Step 6: Skipping Qdrant indexing (CSI specifications are not vector-indexed)")
         
         # Update processing stats
         processing_stats = ProcessingStats(

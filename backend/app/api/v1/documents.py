@@ -52,18 +52,28 @@ async def upload_document(
     Upload and process a PDF document.
 
     Processing differs based on document type:
-    - **specification**: CSI-aware sectionization with hierarchical structure (PART 1/2/3)
-    - **submittal**: Simple paragraph-based chunking without CSI hierarchy
-    - **product_description**: Simple paragraph-based chunking
-    - **drawing**: Simple paragraph-based chunking
 
-    The document will be:
-    1. Parsed with Docling (with optional OCR)
-    2. Sectionized (only for specifications) or chunked (for other types)
-    3. Stored in MongoDB
-    4. Indexed in Qdrant
+    **CSI Specification** (`document_type="specification"`):
+    - CSI-aware hierarchical sectionization (PART 1/2/3 structure)
+    - Section-aware chunking with token limits
+    - Stored in MongoDB (sections + chunks)
+    - **NOT indexed in Qdrant** (used for fact extraction only)
+
+    **Submittal/Product Description/Drawing** (`document_type="submittal"`, `"product_description"`, `"drawing"`):
+    - Simple paragraph-based chunking without CSI hierarchy
+    - Stored in MongoDB (chunks only, no sections)
+    - **Indexed in Qdrant** for vector similarity search
+
+    **Processing Pipeline:**
+    1. Parse PDF with Docling (with optional OCR)
+    2. Sectionize (specifications only) or chunk (other types)
+    3. Store in MongoDB
+    4. Index in Qdrant (submittals/product descriptions/drawings only)
 
     Returns immediately with document ID. Processing happens asynchronously.
+
+    **Note:** Per the notebook logic, CSI specifications are used for fact extraction
+    and comparison, while submittals/product descriptions are indexed for retrieval.
     """
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
