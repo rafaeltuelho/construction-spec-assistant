@@ -210,9 +210,9 @@ def get_chunk_statistics(chunks: List[SectionChunk]) -> dict:
             "min_tokens": 0,
             "max_tokens": 0
         }
-    
+
     token_counts = [chunk.token_count for chunk in chunks]
-    
+
     return {
         "total_chunks": len(chunks),
         "total_tokens": sum(token_counts),
@@ -220,4 +220,108 @@ def get_chunk_statistics(chunks: List[SectionChunk]) -> dict:
         "min_tokens": min(token_counts),
         "max_tokens": max(token_counts)
     }
+
+
+def simple_chunk_markdown(
+    markdown_text: str,
+    max_tokens: int = 500,
+    overlap_tokens: int = 50,
+    model: str = "gpt-4"
+) -> List[SectionChunk]:
+    """
+    Simple chunking for non-CSI documents (submittals, product descriptions, drawings).
+
+    This function does NOT apply CSI hierarchical structure parsing.
+    It simply splits the markdown text into chunks based on:
+    - Paragraph boundaries (double newlines)
+    - Token limits
+    - Sentence boundaries
+    - Overlap between chunks
+
+    Args:
+        markdown_text: Raw markdown text to chunk
+        max_tokens: Maximum tokens per chunk
+        overlap_tokens: Tokens to overlap between chunks
+        model: Model for token counting
+
+    Returns:
+        List of SectionChunk objects (with generic section info)
+    """
+    if not markdown_text or not markdown_text.strip():
+        logger.warning("Empty markdown text provided for simple chunking")
+        return []
+
+    logger.info(f"Simple chunking markdown text ({count_tokens(markdown_text, model)} tokens)")
+
+    # Split by paragraphs first (double newlines)
+    paragraphs = [p.strip() for p in markdown_text.split('\n\n') if p.strip()]
+
+    # Combine paragraphs into chunks respecting token limits
+    chunks = []
+    current_chunk_text = []
+    current_tokens = 0
+
+    for para in paragraphs:
+        para_tokens = count_tokens(para, model)
+
+        # If single paragraph exceeds max_tokens, split it by sentences
+        if para_tokens > max_tokens:
+            if current_chunk_text:
+                # Save current chunk
+                chunks.append('\n\n'.join(current_chunk_text))
+                current_chunk_text = []
+                current_tokens = 0
+
+            # Split long paragraph by sentences and tokens
+            para_chunks = _chunk_text(para, max_tokens, overlap_tokens, model)
+            chunks.extend(para_chunks)
+            continue
+
+        # Check if adding paragraph would exceed limit
+        if current_tokens + para_tokens > max_tokens:
+            if current_chunk_text:
+                chunks.append('\n\n'.join(current_chunk_text))
+
+            # Start new chunk with overlap
+            if overlap_tokens > 0 and current_chunk_text:
+                overlap_paras = []
+                overlap_token_count = 0
+                for p in reversed(current_chunk_text):
+                    p_tokens = count_tokens(p, model)
+                    if overlap_token_count + p_tokens <= overlap_tokens:
+                        overlap_paras.insert(0, p)
+                        overlap_token_count += p_tokens
+                    else:
+                        break
+                current_chunk_text = overlap_paras
+                current_tokens = overlap_token_count
+            else:
+                current_chunk_text = []
+                current_tokens = 0
+
+        current_chunk_text.append(para)
+        current_tokens += para_tokens
+
+    # Add remaining text
+    if current_chunk_text:
+        chunks.append('\n\n'.join(current_chunk_text))
+
+    # Convert to SectionChunk objects
+    section_chunks = []
+    for idx, chunk_text in enumerate(chunks):
+        chunk_id = hashlib.md5(f"{chunk_text}_{idx}".encode()).hexdigest()[:12]
+
+        section_chunks.append(SectionChunk(
+            chunk_id=chunk_id,
+            section_title="Document Content",  # Generic title for non-CSI docs
+            section_number=None,
+            section_level=0,  # Flat structure
+            content=chunk_text,
+            token_count=count_tokens(chunk_text, model),
+            chunk_index=idx,
+            total_chunks=len(chunks)
+        ))
+
+    logger.info(f"Created {len(section_chunks)} simple chunks")
+    return section_chunks
 

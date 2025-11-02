@@ -12,7 +12,7 @@ This module provides REST API endpoints for document operations:
 import tempfile
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 
 from app.dependencies import get_mongodb, get_qdrant
@@ -24,6 +24,7 @@ from app.models.document import (
     DocumentResponse,
     DocumentListResponse,
     DocumentStatus,
+    DocumentType,
     ChunkSearchRequest,
     ChunkSearchResponse
 )
@@ -37,43 +38,60 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.post("/upload", response_model=DocumentResponse, status_code=202)
 async def upload_document(
-    file: UploadFile = File(...),
-    title: Optional[str] = None,
-    use_ocr: bool = True,
-    max_chunk_tokens: int = 500,
-    chunk_overlap_tokens: int = 50,
+    file: UploadFile = File(..., description="PDF file to upload"),
+    document_type: str = Form(..., description="Type of document: specification, submittal, product_description, or drawing"),
+    title: Optional[str] = Form(None, description="Document title (optional)"),
+    use_ocr: bool = Form(True, description="Enable OCR for scanned PDFs"),
+    project_id: Optional[str] = Form(None, description="Project ID (optional)"),
+    max_chunk_tokens: int = Form(500, description="Maximum tokens per chunk"),
+    chunk_overlap_tokens: int = Form(50, description="Overlap tokens between chunks"),
     mongodb=Depends(get_mongodb),
     qdrant=Depends(get_qdrant)
 ):
     """
     Upload and process a PDF document.
-    
+
+    Processing differs based on document type:
+    - **specification**: CSI-aware sectionization with hierarchical structure (PART 1/2/3)
+    - **submittal**: Simple paragraph-based chunking without CSI hierarchy
+    - **product_description**: Simple paragraph-based chunking
+    - **drawing**: Simple paragraph-based chunking
+
     The document will be:
     1. Parsed with Docling (with optional OCR)
-    2. Sectionized into CSI hierarchy
-    3. Chunked with token limits
-    4. Stored in MongoDB
-    5. Indexed in Qdrant
-    
+    2. Sectionized (only for specifications) or chunked (for other types)
+    3. Stored in MongoDB
+    4. Indexed in Qdrant
+
     Returns immediately with document ID. Processing happens asynchronously.
     """
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
+
+    # Validate document_type
+    try:
+        doc_type = DocumentType(document_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid document_type. Must be one of: {', '.join([t.value for t in DocumentType])}"
+        )
+
     try:
         # Save uploaded file to temporary location
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             content = await file.read()
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
-        
-        logger.info(f"Processing uploaded file: {file.filename}")
-        
+
+        logger.info(f"Processing uploaded file: {file.filename} [type={doc_type.value}]")
+
         # Process document
         document = await process_document(
             pdf_path=tmp_path,
             mongodb=mongodb,
             qdrant=qdrant,
+            document_type=doc_type,
             title=title or file.filename,
             use_ocr=use_ocr,
             max_chunk_tokens=max_chunk_tokens,

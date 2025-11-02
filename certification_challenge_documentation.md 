@@ -1,0 +1,22 @@
+# Certification Challenge Documentation for the **Construction Spec Assistant** project
+
+## Project Overview
+This is an **agentic AI system** designed to help Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and contractor submittals.
+
+The system takes as input from the user the following types of documents.
+ - Architectural Drawings (CAD).
+ - Construction Specifications.
+ - Submittals.
+
+ These documents are usually large PDF files containing unstructured data (text, tables, pictures, CAD drawings, etc).
+
+ ## Task 1: Defining Your Problem and Audience
+
+ ### Problem Statement
+ The problem we are trying to solve is to help Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and contractor submittals.
+
+ ### Target Audience
+ The target audience for this system is Construction Architects.
+
+ ### Why This Is a Problem for Our Specific Users (1-2 paragraphs)
+ Construction Architects are responsible for reviewing construction documents and identifying inconsistencies between original specifications/drawings and contractor submittals. This is a time-consuming and error-prone process that can be automated using AI.

@@ -11,6 +11,14 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+class DocumentType(str, Enum):
+    """Document type classification."""
+    SPECIFICATION = "specification"
+    SUBMITTAL = "submittal"
+    PRODUCT_DESCRIPTION = "product_description"
+    DRAWING = "drawing"
+
+
 class DocumentStatus(str, Enum):
     """Document processing status."""
     PENDING = "pending"
@@ -29,6 +37,7 @@ class ProcessingError(BaseModel):
 
 class DocumentMetadata(BaseModel):
     """Document metadata."""
+    document_type: DocumentType = Field(..., description="Type of document")
     filename: str = Field(..., description="Original filename")
     file_size: int = Field(..., description="File size in bytes")
     mime_type: str = Field(default="application/pdf")
