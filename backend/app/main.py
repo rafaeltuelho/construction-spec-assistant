@@ -17,7 +17,7 @@ from app.config import settings
 from app.dependencies import startup_dependencies, shutdown_dependencies
 from app.utils.logging import setup_logging, get_logger
 from app.utils.exceptions import ConstructionSpecAssistantError
-from app.api.v1 import health
+from app.api.v1 import health, documents
 
 # Setup logging
 setup_logging(level=settings.log_level, log_format=settings.log_format)
@@ -191,11 +191,12 @@ app.include_router(
     prefix=settings.api_v1_prefix
 )
 
+app.include_router(
+    documents.router,
+    prefix=settings.api_v1_prefix
+)
+
 # TODO: Add more routers as they are implemented
-# app.include_router(
-#     documents.router,
-#     prefix=f"{settings.api_v1_prefix}/documents"
-# )
 # app.include_router(
 #     facts.router,
 #     prefix=f"{settings.api_v1_prefix}/facts"
