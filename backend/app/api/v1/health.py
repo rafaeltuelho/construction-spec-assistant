@@ -4,13 +4,15 @@ Health check endpoints.
 Provides endpoints to check the health status of the application and its dependencies.
 """
 
-from fastapi import APIRouter, Depends
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from qdrant_client import QdrantClient
+from fastapi import APIRouter
 
 from app.api.schemas.common import HealthCheckResponse
 from app.config import settings
-from app.dependencies import get_mongodb_database, get_qdrant_client
+from app.dependencies import (
+    get_mongodb_client_instance,
+    get_qdrant_client_instance,
+    get_openai_client_instance
+)
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -19,48 +21,65 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthCheckResponse)
-async def health_check(
-    mongodb: AsyncIOMotorDatabase = Depends(get_mongodb_database),
-    qdrant: QdrantClient = Depends(get_qdrant_client)
-) -> HealthCheckResponse:
+async def health_check() -> HealthCheckResponse:
     """
     Check the health status of the application and its dependencies.
-    
+
     Returns:
         Health check response with status of all services
+
+    Note: The application can run with degraded functionality if some services are unavailable.
+    Only critical failures will mark the overall status as unhealthy.
     """
     services = {}
     overall_status = "healthy"
-    
-    # Check MongoDB
-    try:
-        await mongodb.command('ping')
-        services["mongodb"] = "connected"
-    except Exception as e:
-        logger.error(f"MongoDB health check failed: {e}")
-        services["mongodb"] = "disconnected"
-        overall_status = "unhealthy"
-    
-    # Check Qdrant
-    try:
-        # For in-memory Qdrant, just check if client exists
-        if qdrant:
+
+    # Get client instances
+    mongodb_client = get_mongodb_client_instance()
+    qdrant_client = get_qdrant_client_instance()
+    openai_client = get_openai_client_instance()
+
+    # Check MongoDB (optional service)
+    if mongodb_client is not None:
+        try:
+            await mongodb_client.admin.command('ping')
+            services["mongodb"] = "connected"
+            logger.debug("MongoDB health check: connected")
+        except Exception as e:
+            logger.warning(f"MongoDB health check failed: {e}")
+            services["mongodb"] = "disconnected"
+            # Don't mark as unhealthy - MongoDB is optional for basic operations
+    else:
+        services["mongodb"] = "not_available"
+        logger.debug("MongoDB not initialized")
+
+    # Check Qdrant (required for vector search)
+    if qdrant_client is not None:
+        try:
+            # For in-memory Qdrant, just check if client exists
             services["qdrant"] = "connected"
-        else:
+            logger.debug("Qdrant health check: connected")
+        except Exception as e:
+            logger.error(f"Qdrant health check failed: {e}")
             services["qdrant"] = "disconnected"
             overall_status = "unhealthy"
-    except Exception as e:
-        logger.error(f"Qdrant health check failed: {e}")
-        services["qdrant"] = "disconnected"
+    else:
+        services["qdrant"] = "not_available"
         overall_status = "unhealthy"
-    
-    # Check OpenAI (just check if API key is configured)
-    if settings.openai_api_key:
+        logger.error("Qdrant not initialized")
+
+    # Check OpenAI (optional service)
+    if openai_client is not None:
         services["openai"] = "configured"
+        logger.debug("OpenAI client: configured")
+    elif settings.openai_api_key:
+        services["openai"] = "configured_but_not_initialized"
+        logger.debug("OpenAI API key set but client not initialized")
     else:
         services["openai"] = "not_configured"
-        # Don't mark as unhealthy since OpenAI might not be required for all operations
-    
+        logger.debug("OpenAI not configured")
+        # Don't mark as unhealthy - OpenAI might not be required for all operations
+
     return HealthCheckResponse(
         status=overall_status,
         version=settings.app_version,

@@ -22,6 +22,23 @@ _qdrant_client: Optional[QdrantClient] = None
 _openai_client: Optional[ChatOpenAI] = None
 
 
+# Getter functions for health checks
+
+def get_mongodb_client_instance() -> Optional[AsyncIOMotorClient]:
+    """Get the MongoDB client instance (for health checks)."""
+    return _mongodb_client
+
+
+def get_qdrant_client_instance() -> Optional[QdrantClient]:
+    """Get the Qdrant client instance (for health checks)."""
+    return _qdrant_client
+
+
+def get_openai_client_instance() -> Optional[ChatOpenAI]:
+    """Get the OpenAI client instance (for health checks)."""
+    return _openai_client
+
+
 # MongoDB Dependencies
 
 async def get_mongodb_client() -> AsyncIOMotorClient:
@@ -63,27 +80,30 @@ async def get_mongodb_database(
 async def init_mongodb() -> None:
     """
     Initialize MongoDB client.
-    
+
     Should be called during application startup.
+    Note: This is optional - the application will start even if MongoDB is not available.
     """
     global _mongodb_client
-    
+
     try:
         logger.info(f"Connecting to MongoDB at {settings.mongodb_url}")
-        
+
         _mongodb_client = AsyncIOMotorClient(
             settings.mongodb_url,
-            maxPoolSize=settings.mongodb_max_pool_size
+            maxPoolSize=settings.mongodb_max_pool_size,
+            serverSelectionTimeoutMS=5000  # 5 second timeout for faster failure
         )
-        
+
         # Test connection
         await _mongodb_client.admin.command('ping')
-        
+
         logger.info("MongoDB connection established")
-        
+
     except Exception as e:
-        logger.error(f"Failed to connect to MongoDB: {e}")
-        raise DatabaseConnectionError(database="MongoDB", message=str(e))
+        logger.warning(f"Failed to connect to MongoDB: {e}")
+        logger.warning("Application will continue without MongoDB. Document storage will not be available.")
+        _mongodb_client = None
 
 
 async def close_mongodb() -> None:
@@ -192,29 +212,34 @@ async def get_openai_client() -> ChatOpenAI:
 async def init_openai() -> None:
     """
     Initialize OpenAI LLM client.
-    
+
     Should be called during application startup.
+    Note: This is optional - the application will start even if OpenAI is not configured.
     """
     global _openai_client
-    
+
     try:
         if not settings.openai_api_key:
-            raise ConfigurationError("OPENAI_API_KEY not set in environment")
-        
+            logger.warning("OPENAI_API_KEY not set in environment")
+            logger.warning("Application will continue without OpenAI. LLM features will not be available.")
+            _openai_client = None
+            return
+
         logger.info(f"Initializing OpenAI client with model {settings.openai_model}")
-        
+
         _openai_client = ChatOpenAI(
             api_key=settings.openai_api_key,
             model=settings.openai_model,
             temperature=settings.openai_temperature,
             max_tokens=settings.openai_max_tokens
         )
-        
+
         logger.info("OpenAI client initialized")
-        
+
     except Exception as e:
-        logger.error(f"Failed to initialize OpenAI: {e}")
-        raise ConfigurationError(f"Failed to initialize OpenAI: {e}")
+        logger.warning(f"Failed to initialize OpenAI: {e}")
+        logger.warning("Application will continue without OpenAI. LLM features will not be available.")
+        _openai_client = None
 
 
 # Startup and Shutdown
