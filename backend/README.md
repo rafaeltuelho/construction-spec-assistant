@@ -25,19 +25,26 @@ FastAPI backend for the Construction Spec Assistant, an AI-powered system for re
 # Install uv if you haven't already
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create virtual environment and install dependencies
-cd backend
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e ".[dev]"
+# From the project root directory
+cd /path/to/construction-spec-assistant
+
+# Install all dependencies (including dev extras)
+uv sync --extra dev
 ```
 
-### Using pip
+**Note**: The project uses a unified `pyproject.toml` at the root level. All dependencies are managed from the project root, not from the `backend` directory.
+
+### Alternative: Using pip with virtual environment
 
 ```bash
-cd backend
+# From the project root directory
+cd /path/to/construction-spec-assistant
+
+# Create and activate virtual environment
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
 pip install -e ".[dev]"
 ```
 
@@ -46,7 +53,8 @@ pip install -e ".[dev]"
 1. Copy the example environment file:
 
 ```bash
-cp .env.example .env
+# From the project root
+cp backend/.env.example backend/.env
 ```
 
 2. Edit `.env` and set your configuration:
@@ -65,14 +73,28 @@ LOG_LEVEL="INFO"
 
 ### Development Mode
 
+#### Option 1: Using `uv run` (recommended)
+
 ```bash
-# From the backend directory
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# From the project root directory
+uv run uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Or using the Python script:
+#### Option 2: With activated virtual environment
 
 ```bash
+# From the project root directory
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Run with uvicorn
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### Option 3: Using Python module
+
+```bash
+# From the project root with activated venv
+cd backend
 python -m app.main
 ```
 
@@ -82,8 +104,8 @@ python -m app.main
 # Set environment to production
 export ENVIRONMENT=production
 
-# Run with uvicorn
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+# From the project root
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 ## API Documentation
