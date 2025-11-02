@@ -13,7 +13,7 @@ import logging
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions, TesseractOcrOptions
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 
 from app.utils.logging import get_logger
@@ -27,31 +27,62 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 def create_docling_config(
     use_ocr: bool = True,
-    ocr_engine: str = "easyocr"
+    ocr_engine: str = "easyocr",
+    full_page_ocr: bool = False
 ) -> PdfPipelineOptions:
     """
     Create Docling pipeline configuration.
-    
+
     Args:
         use_ocr: Whether to enable OCR for scanned PDFs
         ocr_engine: OCR engine to use ("easyocr" or "tesseract")
-    
+        full_page_ocr: Force full page OCR (slower but more accurate)
+
     Returns:
         PdfPipelineOptions configured for document parsing
+
+    Note:
+        Based on notebook implementation (lines 369-397).
+        Uses EasyOcrOptions or TesseractOcrOptions directly instead of
+        setting ocr_options.use_easyocr (which doesn't exist in the API).
     """
-    pipeline_options = PdfPipelineOptions()
-    pipeline_options.do_ocr = use_ocr
-    pipeline_options.do_table_structure = True
-    
+    # Configure OCR options based on engine
     if use_ocr:
         if ocr_engine == "easyocr":
-            pipeline_options.ocr_options.use_easyocr = True
+            ocr_options = EasyOcrOptions(
+                lang=["en"],  # English language
+                confidence_threshold=0.7,  # Higher threshold for better quality
+                use_gpu=True,  # Enable GPU acceleration if available
+                recog_network="standard",  # Standard recognition network
+                force_full_page_ocr=full_page_ocr  # Full page OCR mode
+            )
         elif ocr_engine == "tesseract":
-            pipeline_options.ocr_options.use_tesseract = True
+            ocr_options = TesseractOcrOptions(
+                lang=["eng"],  # English language
+                psm=6  # Uniform block of text (good for most documents)
+            )
         else:
             logger.warning(f"Unknown OCR engine: {ocr_engine}, using easyocr")
-            pipeline_options.ocr_options.use_easyocr = True
-    
+            ocr_options = EasyOcrOptions(
+                lang=["en"],
+                confidence_threshold=0.7,
+                use_gpu=True,
+                recog_network="standard",
+                force_full_page_ocr=full_page_ocr
+            )
+    else:
+        ocr_options = None
+
+    # Create pipeline options
+    pipeline_options = PdfPipelineOptions(
+        do_table_structure=True,
+        do_ocr=use_ocr,
+        ocr_options=ocr_options,
+        generate_picture_images=True,
+        images_scale=2.0,  # Higher scale for better text recognition
+        force_backend_text=False  # Let OCR generate the text
+    )
+
     return pipeline_options
 
 
