@@ -196,11 +196,15 @@ app.include_router(
     prefix=settings.api_v1_prefix
 )
 
+# Import facts router
+from app.api.v1 import facts
+
+app.include_router(
+    facts.router,
+    prefix=settings.api_v1_prefix
+)
+
 # TODO: Add more routers as they are implemented
-# app.include_router(
-#     facts.router,
-#     prefix=f"{settings.api_v1_prefix}/facts"
-# )
 # app.include_router(
 #     comparison.router,
 #     prefix=f"{settings.api_v1_prefix}/comparison"
