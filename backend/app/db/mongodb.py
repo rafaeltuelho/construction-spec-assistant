@@ -295,7 +295,7 @@ async def get_facts_by_document(
         DatabaseError: If retrieval fails
     """
     try:
-        cursor = db.facts.find({"context.source_document": document_id}).skip(offset).limit(limit)
+        cursor = db.facts.find({"context.doc_id": document_id}).skip(offset).limit(limit)
         fact_dicts = await cursor.to_list(length=limit)
 
         facts = [Fact(**doc) for doc in fact_dicts]
