@@ -4,6 +4,7 @@ Comparison service for spec-to-submittal comparison.
 This module orchestrates the comparison workflow using retrievers and LangGraph agents.
 """
 
+import uuid
 from typing import Dict, Any, List
 from langchain_openai import ChatOpenAI
 from qdrant_client import QdrantClient
@@ -93,6 +94,7 @@ async def compare_spec_to_submittal(
         result = final_state.get("result", {})
 
         # Add metadata
+        result["comparison_id"] = str(uuid.uuid4())
         result["spec_fact"] = spec_fact
         result["submittal_document_id"] = submittal_document_id
         result["retrieval_strategy"] = retrieval_strategy
