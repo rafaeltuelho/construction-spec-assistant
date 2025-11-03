@@ -91,7 +91,7 @@ async def run_fact_extraction(
         logger.error(f"Fact extraction job {job_id} failed: {e}")
         _extraction_jobs[job_id].status = "failed"
         _extraction_jobs[job_id].completed_at = datetime.utcnow()
-        _extraction_jobs[job_id].error_message = str(e)
+        _extraction_jobs[job_id].error = str(e)
 
 
 @router.post("/extract", response_model=FactExtractionResponse, status_code=202)

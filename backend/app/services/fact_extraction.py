@@ -156,8 +156,8 @@ async def extract_facts_from_chunk(
         # Convert to Fact objects
         facts: List[Fact] = []
         for item in items:
-            # Fill required context bits if missing
-            item.setdefault("id", str(uuid.uuid4()))
+            # Always generate a UUID for the fact ID (ignore LLM-provided IDs)
+            item["id"] = str(uuid.uuid4())
             item.setdefault("context", {})
             item["context"].setdefault("doc_id", document_id)
             item["context"].setdefault("section_id", chunk.section_id)
