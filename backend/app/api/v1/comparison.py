@@ -19,6 +19,8 @@ from app.api.schemas.comparison import (
     ComparisonResult,
     CompareDocumentRequest,
     DocumentComparisonResult,
+    DocumentComparisonResponse,
+    DocumentComparisonStatus,
     BatchCompareRequest,
     BatchComparisonResponse,
     BatchComparisonStatus,
@@ -36,8 +38,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory storage for batch jobs (in production, use Redis or database)
+# In-memory storage for jobs (in production, use Redis or database)
 _batch_jobs: Dict[str, BatchComparisonStatus] = {}
+_document_jobs: Dict[str, DocumentComparisonStatus] = {}
 
 
 @router.post(
@@ -144,21 +147,23 @@ async def compare_spec_to_submittal_endpoint(
 
 @router.post(
     "/compare-document",
-    response_model=DocumentComparisonResult,
-    status_code=status.HTTP_200_OK,
+    response_model=DocumentComparisonResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Compare all specification facts from a document against submittal",
     description="""
     Compare all extracted facts from a specification document against a submittal document.
 
-    This endpoint:
-    1. Retrieves all facts extracted from the specification document
-    2. Compares each fact against the submittal document using hybrid search
-    3. Returns a summary and detailed results for all comparisons
+    This endpoint initiates a document comparison job and returns immediately.
+    Use the returned `job_id` to check the status and retrieve results.
 
-    **Query Parameters**:
-    - `limit`: Maximum number of comparisons to return (default: 100)
-    - `offset`: Pagination offset (default: 0)
-    - `verdict_filter`: Filter by verdict ('consistent', 'inconsistent', 'unclear')
+    The comparison workflow:
+    1. Retrieves all facts extracted from the specification document
+    2. For each fact, performs hybrid search against the submittal
+    3. Uses LLM to compare each fact against retrieved evidence
+    4. Returns aggregated results with summary statistics
+
+    **Note**: This is a long-running operation. Use GET /compare-document/{job_id}
+    to check status and retrieve results.
 
     **Retrieval Strategies**:
     - `dense`: Vector similarity search (semantic)
@@ -168,36 +173,32 @@ async def compare_spec_to_submittal_endpoint(
 )
 async def compare_document_to_submittal_endpoint(
     request: CompareDocumentRequest,
-    limit: int = 100,
-    offset: int = 0,
-    verdict_filter: str = None,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
     llm_client: ChatOpenAI = Depends(get_llm_client),
-) -> DocumentComparisonResult:
+) -> DocumentComparisonResponse:
     """
-    Compare all facts from a specification document against a submittal document.
+    Initiate a document comparison job.
 
     Args:
         request: Document comparison request with spec and submittal document IDs
-        limit: Maximum number of comparisons to return
-        offset: Pagination offset
-        verdict_filter: Optional filter by verdict
         db: MongoDB database instance
         qdrant_client: Qdrant client instance
         llm_client: OpenAI LLM client
 
     Returns:
-        Document comparison result with summary and individual comparisons
+        Document comparison response with job_id and status
 
     Raises:
-        HTTPException: If comparison fails or documents not found
+        HTTPException: If job initiation fails
     """
     try:
+        job_id = str(uuid.uuid4())
+
         logger.info(
-            f"Document comparison request: spec_document_id={request.spec_document_id}, "
-            f"submittal_document_id={request.submittal_document_id}, "
-            f"strategy={request.retrieval_strategy}, limit={limit}, offset={offset}"
+            f"Initiating document comparison job: job_id={job_id}, "
+            f"spec_document_id={request.spec_document_id}, "
+            f"submittal_document_id={request.submittal_document_id}"
         )
 
         # Validate retrieval strategy
@@ -208,62 +209,178 @@ async def compare_document_to_submittal_endpoint(
                 f"Must be 'dense', 'sparse', or 'ensemble'.",
             )
 
-        # Validate verdict filter
-        if verdict_filter and verdict_filter not in ["consistent", "inconsistent", "unclear"]:
+        # Get total facts count from MongoDB
+        from app.db.mongodb import get_facts_by_document
+
+        facts = await get_facts_by_document(db, request.spec_document_id)
+        total_facts = len(facts)
+
+        if total_facts == 0:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid verdict filter: {verdict_filter}. "
-                f"Must be 'consistent', 'inconsistent', or 'unclear'.",
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No facts found for specification document: {request.spec_document_id}",
             )
 
-        # Perform document comparison
-        result = await compare_document_to_submittal(
+        # Create document comparison job
+        document_job = DocumentComparisonStatus(
+            job_id=job_id,
             spec_document_id=request.spec_document_id,
             submittal_document_id=request.submittal_document_id,
-            db=db,
-            qdrant_client=qdrant_client,
-            llm_client=llm_client,
-            retrieval_strategy=request.retrieval_strategy,
-            top_k=request.top_k,
-            limit=limit,
-            offset=offset,
-            verdict_filter=verdict_filter,
+            total_facts=total_facts,
+            completed_facts=0,
+            status="processing",
+            comparisons=[],
+            created_at=datetime.utcnow(),
+        )
+        _document_jobs[job_id] = document_job
+
+        # Process comparison asynchronously (in production, use task queue)
+        try:
+            result = await compare_document_to_submittal(
+                spec_document_id=request.spec_document_id,
+                submittal_document_id=request.submittal_document_id,
+                db=db,
+                qdrant_client=qdrant_client,
+                llm_client=llm_client,
+                retrieval_strategy=request.retrieval_strategy,
+                top_k=request.top_k,
+            )
+
+            # Convert results to ComparisonResult objects
+            from app.api.schemas.comparison import ComparisonSummary
+
+            comparison_results = [ComparisonResult(**comp) for comp in result["comparisons"]]
+
+            # Update job status
+            document_job.status = "completed"
+            document_job.completed_facts = len(comparison_results)
+            document_job.summary = ComparisonSummary(**result["summary"])
+            document_job.comparisons = comparison_results
+            document_job.completed_at = datetime.utcnow()
+
+            logger.info(
+                f"Document comparison complete: job_id={job_id}, "
+                f"total_facts={total_facts}, completed={len(comparison_results)}"
+            )
+
+        except Exception as e:
+            logger.error(f"Document comparison failed: job_id={job_id}, error={e}", exc_info=True)
+            document_job.status = "failed"
+            document_job.error = str(e)
+            document_job.completed_at = datetime.utcnow()
+
+        return DocumentComparisonResponse(
+            job_id=job_id,
+            status=document_job.status,
+            spec_document_id=request.spec_document_id,
+            submittal_document_id=request.submittal_document_id,
+            total_facts=total_facts,
+            message=f"Document comparison job {document_job.status}",
         )
 
-        # Build response
-        from app.api.schemas.comparison import ComparisonSummary
-
-        document_result = DocumentComparisonResult(
-            comparison_id=result["comparison_id"],
-            spec_document_id=result["spec_document_id"],
-            submittal_document_id=result["submittal_document_id"],
-            total_facts=result["total_facts"],
-            status=result["status"],
-            summary=ComparisonSummary(**result["summary"]),
-            comparisons=[ComparisonResult(**comp) for comp in result["comparisons"]],
-            compared_at=result["compared_at"],
-        )
-
-        logger.info(
-            f"Document comparison complete: total_facts={document_result.total_facts}, "
-            f"consistent={document_result.summary.consistent}, "
-            f"inconsistent={document_result.summary.inconsistent}, "
-            f"unclear={document_result.summary.unclear}"
-        )
-
-        return document_result
-
-    except NotFoundError as e:
-        logger.error(f"Document not found: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except ComparisonError as e:
-        logger.error(f"Document comparison failed: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error during document comparison: {e}", exc_info=True)
+        logger.error(f"Failed to initiate document comparison: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Document comparison failed: {str(e)}",
+            detail=f"Failed to initiate document comparison: {str(e)}",
+        )
+
+
+@router.get(
+    "/compare-document/{job_id}",
+    response_model=DocumentComparisonStatus,
+    status_code=status.HTTP_200_OK,
+    summary="Get document comparison job status and results",
+    description="""
+    Retrieve the status and results of a document comparison job.
+
+    **Status values**:
+    - `pending`: Job is queued but not started
+    - `processing`: Job is currently running
+    - `completed`: Job finished successfully
+    - `failed`: Job failed with an error
+
+    **Pagination**: Use query parameters `limit` and `offset` to paginate through results.
+    **Filtering**: Use `verdict_filter` to filter by verdict type.
+    """,
+)
+async def get_document_comparison_status(
+    job_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    verdict_filter: str = None,
+) -> DocumentComparisonStatus:
+    """
+    Get document comparison job status and results.
+
+    Args:
+        job_id: Job identifier
+        limit: Maximum number of comparisons to return
+        offset: Pagination offset
+        verdict_filter: Optional filter by verdict
+
+    Returns:
+        Document comparison status with results if completed
+
+    Raises:
+        HTTPException: If job not found
+    """
+    try:
+        logger.info(f"Retrieving document comparison status: job_id={job_id}")
+
+        if job_id not in _document_jobs:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Job not found: {job_id}"
+            )
+
+        job = _document_jobs[job_id]
+
+        # Apply filters and pagination if job is completed
+        if job.status == "completed" and job.comparisons:
+            comparisons = job.comparisons
+
+            # Apply verdict filter
+            if verdict_filter:
+                if verdict_filter not in ["consistent", "inconsistent", "unclear"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid verdict filter: {verdict_filter}. "
+                        f"Must be 'consistent', 'inconsistent', or 'unclear'.",
+                    )
+                comparisons = [c for c in comparisons if c.verdict == verdict_filter]
+
+            # Apply pagination
+            total_comparisons = len(comparisons)
+            comparisons = comparisons[offset : offset + limit]
+
+            # Create a copy of the job with filtered/paginated results
+            job_copy = job.model_copy()
+            job_copy.comparisons = comparisons
+
+            logger.info(
+                f"Job status: job_id={job_id}, status={job.status}, "
+                f"completed={job.completed_facts}/{job.total_facts}, "
+                f"returned={len(comparisons)}/{total_comparisons}"
+            )
+
+            return job_copy
+
+        logger.info(
+            f"Job status: job_id={job_id}, status={job.status}, "
+            f"completed={job.completed_facts}/{job.total_facts}"
+        )
+
+        return job
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve job status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve job status: {str(e)}",
         )
 
 

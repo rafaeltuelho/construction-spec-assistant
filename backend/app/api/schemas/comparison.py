@@ -123,8 +123,45 @@ class ComparisonSummary(BaseModel):
     unclear: int = Field(..., description="Number of unclear facts")
 
 
+class DocumentComparisonResponse(BaseModel):
+    """Response schema for document comparison job initiation."""
+
+    job_id: str = Field(..., description="Unique job identifier")
+    status: str = Field(..., description="Initial status: 'pending' or 'processing'")
+    spec_document_id: str = Field(..., description="Specification document ID")
+    submittal_document_id: str = Field(..., description="Submittal document ID")
+    total_facts: int = Field(..., description="Total number of facts to compare")
+    message: str = Field(..., description="Status message")
+
+
+class DocumentComparisonStatus(BaseModel):
+    """Response schema for document comparison job status."""
+
+    job_id: str = Field(..., description="Unique job identifier")
+    spec_document_id: str = Field(..., description="Specification document ID")
+    submittal_document_id: str = Field(..., description="Submittal document ID")
+    total_facts: int = Field(..., description="Total number of facts to compare")
+    completed_facts: int = Field(..., description="Number of facts completed")
+    status: str = Field(
+        ..., description="Job status: 'pending', 'processing', 'completed', 'failed'"
+    )
+    summary: Optional[ComparisonSummary] = Field(
+        default=None, description="Summary statistics (available when completed)"
+    )
+    comparisons: List[ComparisonResult] = Field(
+        default_factory=list, description="Individual comparison results (available when completed)"
+    )
+    error: Optional[str] = Field(default=None, description="Error message if job failed")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Timestamp when job was created"
+    )
+    completed_at: Optional[datetime] = Field(
+        default=None, description="Timestamp when job was completed"
+    )
+
+
 class DocumentComparisonResult(BaseModel):
-    """Response schema for document-level comparison."""
+    """Response schema for document-level comparison (deprecated - use DocumentComparisonStatus)."""
 
     comparison_id: str = Field(..., description="Unique document comparison identifier")
     spec_document_id: str = Field(..., description="Specification document ID")
