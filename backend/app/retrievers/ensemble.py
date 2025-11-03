@@ -9,9 +9,9 @@ from typing import List, Dict, Any, Optional
 from langchain_core.documents import Document
 import logging
 
-from backend.app.retrievers.base import BaseRetriever
-from backend.app.retrievers.dense import DenseRetriever
-from backend.app.retrievers.sparse import SparseRetriever
+from app.retrievers.base import BaseRetriever
+from app.retrievers.dense import DenseRetriever
+from app.retrievers.sparse import SparseRetriever
 
 logger = logging.getLogger(__name__)
 

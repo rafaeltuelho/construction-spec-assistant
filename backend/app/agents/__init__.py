@@ -5,17 +5,17 @@ This package provides LangGraph-based agents for:
 - Spec-to-submittal comparison
 """
 
-from backend.app.agents.comparison_graph import (
+from app.agents.comparison_graph import (
     ComparisonState,
     create_comparison_graph,
     retrieve_node,
-    compare_node
+    compare_node,
 )
-from backend.app.agents.prompts import (
+from app.agents.prompts import (
     FACT_EXTRACTOR_SYSTEM_PROMPT,
     EXTRACTOR_PROMPT_TEMPLATE,
     COMPARISON_SYSTEM_PROMPT,
-    COMPARISON_PROMPT_TEMPLATE
+    COMPARISON_PROMPT_TEMPLATE,
 )
 
 __all__ = [

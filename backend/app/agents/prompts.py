@@ -139,5 +139,3 @@ Determine if the submittal meets the specification requirement.
 
 Provide ONLY the JSON response, no additional text.
 """
-
-

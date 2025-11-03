@@ -13,8 +13,8 @@ from langgraph.graph import StateGraph, END
 import json
 import logging
 
-from backend.app.retrievers.base import BaseRetriever
-from backend.app.agents.prompts import COMPARISON_SYSTEM_PROMPT, COMPARISON_PROMPT_TEMPLATE
+from app.retrievers.base import BaseRetriever
+from app.agents.prompts import COMPARISON_SYSTEM_PROMPT, COMPARISON_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 

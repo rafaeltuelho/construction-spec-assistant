@@ -10,15 +10,15 @@ from qdrant_client import QdrantClient
 from motor.motor_asyncio import AsyncIOMotorDatabase
 import logging
 
-from backend.app.retrievers import (
+from app.retrievers import (
     DenseRetriever,
     SparseRetriever,
     EnsembleRetriever,
     build_query_terms_from_fact,
 )
-from backend.app.agents.comparison_graph import create_comparison_graph, ComparisonState
-from backend.app.db.mongodb import get_document_chunks
-from backend.app.utils.exceptions import NotFoundError, ComparisonError
+from app.agents.comparison_graph import create_comparison_graph, ComparisonState
+from app.db.mongodb import get_document_chunks
+from app.utils.exceptions import NotFoundError, ComparisonError
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ import uuid
 import logging
 from datetime import datetime
 
-from backend.app.api.schemas.comparison import (
+from app.api.schemas.comparison import (
     CompareRequest,
     ComparisonResult,
     BatchCompareRequest,
@@ -22,9 +22,9 @@ from backend.app.api.schemas.comparison import (
     BatchComparisonStatus,
     RetrievedChunk,
 )
-from backend.app.services.comparison import compare_spec_to_submittal, compare_batch
-from backend.app.dependencies import get_mongodb, get_qdrant, get_llm_client
-from backend.app.utils.exceptions import NotFoundError, ComparisonError
+from app.services.comparison import compare_spec_to_submittal, compare_batch
+from app.dependencies import get_mongodb, get_qdrant, get_llm_client
+from app.utils.exceptions import NotFoundError, ComparisonError
 
 logger = logging.getLogger(__name__)
 

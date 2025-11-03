@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 import logging
 
-from backend.app.retrievers.base import BaseRetriever
+from app.retrievers.base import BaseRetriever
 
 logger = logging.getLogger(__name__)
 

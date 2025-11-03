@@ -11,7 +11,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from fastembed import TextEmbedding
 import logging
 
-from backend.app.retrievers.base import BaseRetriever
+from app.retrievers.base import BaseRetriever
 
 logger = logging.getLogger(__name__)
 
