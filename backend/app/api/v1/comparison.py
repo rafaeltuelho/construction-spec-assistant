@@ -17,12 +17,18 @@ from datetime import datetime
 from app.api.schemas.comparison import (
     CompareRequest,
     ComparisonResult,
+    CompareDocumentRequest,
+    DocumentComparisonResult,
     BatchCompareRequest,
     BatchComparisonResponse,
     BatchComparisonStatus,
     RetrievedChunk,
 )
-from app.services.comparison import compare_spec_to_submittal, compare_batch
+from app.services.comparison import (
+    compare_spec_to_submittal,
+    compare_document_to_submittal,
+    compare_batch,
+)
 from app.dependencies import get_mongodb, get_qdrant, get_llm_client
 from app.utils.exceptions import NotFoundError, ComparisonError
 
@@ -133,6 +139,131 @@ async def compare_spec_to_submittal_endpoint(
         logger.error(f"Unexpected error during comparison: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Comparison failed: {str(e)}"
+        )
+
+
+@router.post(
+    "/compare-document",
+    response_model=DocumentComparisonResult,
+    status_code=status.HTTP_200_OK,
+    summary="Compare all specification facts from a document against submittal",
+    description="""
+    Compare all extracted facts from a specification document against a submittal document.
+
+    This endpoint:
+    1. Retrieves all facts extracted from the specification document
+    2. Compares each fact against the submittal document using hybrid search
+    3. Returns a summary and detailed results for all comparisons
+
+    **Query Parameters**:
+    - `limit`: Maximum number of comparisons to return (default: 100)
+    - `offset`: Pagination offset (default: 0)
+    - `verdict_filter`: Filter by verdict ('consistent', 'inconsistent', 'unclear')
+
+    **Retrieval Strategies**:
+    - `dense`: Vector similarity search (semantic)
+    - `sparse`: BM25 keyword search (lexical)
+    - `ensemble`: Weighted combination of dense + sparse (recommended)
+    """,
+)
+async def compare_document_to_submittal_endpoint(
+    request: CompareDocumentRequest,
+    limit: int = 100,
+    offset: int = 0,
+    verdict_filter: str = None,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+    qdrant_client: QdrantClient = Depends(get_qdrant),
+    llm_client: ChatOpenAI = Depends(get_llm_client),
+) -> DocumentComparisonResult:
+    """
+    Compare all facts from a specification document against a submittal document.
+
+    Args:
+        request: Document comparison request with spec and submittal document IDs
+        limit: Maximum number of comparisons to return
+        offset: Pagination offset
+        verdict_filter: Optional filter by verdict
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+
+    Returns:
+        Document comparison result with summary and individual comparisons
+
+    Raises:
+        HTTPException: If comparison fails or documents not found
+    """
+    try:
+        logger.info(
+            f"Document comparison request: spec_document_id={request.spec_document_id}, "
+            f"submittal_document_id={request.submittal_document_id}, "
+            f"strategy={request.retrieval_strategy}, limit={limit}, offset={offset}"
+        )
+
+        # Validate retrieval strategy
+        if request.retrieval_strategy not in ["dense", "sparse", "ensemble"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid retrieval strategy: {request.retrieval_strategy}. "
+                f"Must be 'dense', 'sparse', or 'ensemble'.",
+            )
+
+        # Validate verdict filter
+        if verdict_filter and verdict_filter not in ["consistent", "inconsistent", "unclear"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid verdict filter: {verdict_filter}. "
+                f"Must be 'consistent', 'inconsistent', or 'unclear'.",
+            )
+
+        # Perform document comparison
+        result = await compare_document_to_submittal(
+            spec_document_id=request.spec_document_id,
+            submittal_document_id=request.submittal_document_id,
+            db=db,
+            qdrant_client=qdrant_client,
+            llm_client=llm_client,
+            retrieval_strategy=request.retrieval_strategy,
+            top_k=request.top_k,
+            limit=limit,
+            offset=offset,
+            verdict_filter=verdict_filter,
+        )
+
+        # Build response
+        from app.api.schemas.comparison import ComparisonSummary
+
+        document_result = DocumentComparisonResult(
+            comparison_id=result["comparison_id"],
+            spec_document_id=result["spec_document_id"],
+            submittal_document_id=result["submittal_document_id"],
+            total_facts=result["total_facts"],
+            status=result["status"],
+            summary=ComparisonSummary(**result["summary"]),
+            comparisons=[ComparisonResult(**comp) for comp in result["comparisons"]],
+            compared_at=result["compared_at"],
+        )
+
+        logger.info(
+            f"Document comparison complete: total_facts={document_result.total_facts}, "
+            f"consistent={document_result.summary.consistent}, "
+            f"inconsistent={document_result.summary.inconsistent}, "
+            f"unclear={document_result.summary.unclear}"
+        )
+
+        return document_result
+
+    except NotFoundError as e:
+        logger.error(f"Document not found: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ComparisonError as e:
+        logger.error(f"Document comparison failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during document comparison: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Document comparison failed: {str(e)}",
         )
 
 

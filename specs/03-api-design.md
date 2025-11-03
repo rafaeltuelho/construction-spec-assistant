@@ -368,6 +368,94 @@ Compare a specification fact against a submittal document.
 
 ---
 
+#### `POST /api/v1/comparison/compare-document`
+
+Compare all extracted facts from a specification document against a submittal document.
+
+**Request**:
+```json
+{
+  "spec_document_id": "doc_spec_123",
+  "submittal_document_id": "doc_submittal_456",
+  "retrieval_strategy": "ensemble",
+  "top_k": 5
+}
+```
+
+**Response**:
+```json
+{
+  "comparison_id": "comp_doc_888",
+  "spec_document_id": "doc_spec_123",
+  "submittal_document_id": "doc_submittal_456",
+  "total_facts": 67,
+  "status": "completed",
+  "summary": {
+    "consistent": 45,
+    "inconsistent": 12,
+    "unclear": 10
+  },
+  "comparisons": [
+    {
+      "comparison_id": "comp_789",
+      "spec_fact": {
+        "entity": "Elevator",
+        "attribute": "capacity",
+        "value": "2500 lbs",
+        "operator": ">="
+      },
+      "verdict": "consistent",
+      "confidence": 0.92,
+      "submittal_evidence": "The submittal states: 'Elevator capacity: 3000 lbs'",
+      "retrieved_chunks": [
+        {
+          "chunk_id": "chunk_submittal_023",
+          "content": "...",
+          "relevance_score": 0.89
+        }
+      ],
+      "reasoning": "The submittal capacity (3000 lbs) exceeds the specification requirement (>= 2500 lbs).",
+      "compared_at": "2025-10-22T18:40:00Z"
+    },
+    {
+      "comparison_id": "comp_790",
+      "spec_fact": {
+        "entity": "Elevator",
+        "attribute": "speed",
+        "value": "200 fpm",
+        "operator": "="
+      },
+      "verdict": "inconsistent",
+      "confidence": 0.88,
+      "submittal_evidence": "The submittal states: 'Elevator speed: 150 fpm'",
+      "retrieved_chunks": [
+        {
+          "chunk_id": "chunk_submittal_024",
+          "content": "...",
+          "relevance_score": 0.91
+        }
+      ],
+      "reasoning": "The submittal speed (150 fpm) does not match the specification requirement (= 200 fpm).",
+      "compared_at": "2025-10-22T18:40:01Z"
+    }
+  ],
+  "compared_at": "2025-10-22T18:40:00Z"
+}
+```
+
+**Query Parameters** (optional):
+- `limit`: Maximum number of comparisons to return (default: 100)
+- `offset`: Pagination offset (default: 0)
+- `verdict_filter`: Filter by verdict (`consistent`, `inconsistent`, `unclear`)
+
+**Status Codes**:
+- `200 OK`: Document comparison completed
+- `400 Bad Request`: Invalid request
+- `404 Not Found`: Specification or submittal document not found
+- `500 Internal Server Error`: Comparison failed
+
+---
+
 #### `POST /api/v1/comparison/batch`
 
 Compare multiple specification facts against a submittal document.

@@ -98,3 +98,43 @@ class BatchComparisonResponse(BaseModel):
     status: str = Field(..., description="Initial status: 'pending' or 'processing'")
     total_facts: int = Field(..., description="Total number of facts to compare")
     message: str = Field(..., description="Status message")
+
+
+class CompareDocumentRequest(BaseModel):
+    """Request schema for document-level comparison."""
+
+    spec_document_id: str = Field(
+        ..., description="ID of the specification document containing facts to compare"
+    )
+    submittal_document_id: str = Field(
+        ..., description="ID of the submittal document to compare against"
+    )
+    retrieval_strategy: str = Field(
+        default="ensemble", description="Retrieval strategy: 'dense', 'sparse', or 'ensemble'"
+    )
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve per fact")
+
+
+class ComparisonSummary(BaseModel):
+    """Summary statistics for document comparison."""
+
+    consistent: int = Field(..., description="Number of consistent facts")
+    inconsistent: int = Field(..., description="Number of inconsistent facts")
+    unclear: int = Field(..., description="Number of unclear facts")
+
+
+class DocumentComparisonResult(BaseModel):
+    """Response schema for document-level comparison."""
+
+    comparison_id: str = Field(..., description="Unique document comparison identifier")
+    spec_document_id: str = Field(..., description="Specification document ID")
+    submittal_document_id: str = Field(..., description="Submittal document ID")
+    total_facts: int = Field(..., description="Total number of facts compared")
+    status: str = Field(..., description="Comparison status: 'completed', 'partial', 'failed'")
+    summary: ComparisonSummary = Field(..., description="Summary statistics")
+    comparisons: List[ComparisonResult] = Field(
+        default_factory=list, description="Individual comparison results"
+    )
+    compared_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Timestamp of comparison"
+    )

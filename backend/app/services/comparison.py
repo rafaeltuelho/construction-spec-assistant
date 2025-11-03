@@ -246,3 +246,161 @@ async def _create_retriever(
         )
     else:
         raise ValueError(f"Invalid retrieval strategy: {strategy}")
+
+
+async def compare_document_to_submittal(
+    spec_document_id: str,
+    submittal_document_id: str,
+    db: AsyncIOMotorDatabase,
+    qdrant_client: QdrantClient,
+    llm_client: ChatOpenAI,
+    retrieval_strategy: str = "ensemble",
+    top_k: int = 5,
+    limit: int = 100,
+    offset: int = 0,
+    verdict_filter: str = None,
+) -> Dict[str, Any]:
+    """
+    Compare all facts from a specification document against a submittal document.
+
+    Args:
+        spec_document_id: Specification document ID containing facts
+        submittal_document_id: Submittal document ID to compare against
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+        retrieval_strategy: "dense", "sparse", or "ensemble" (default)
+        top_k: Number of documents to retrieve per fact
+        limit: Maximum number of comparisons to return
+        offset: Pagination offset
+        verdict_filter: Optional filter by verdict ('consistent', 'inconsistent', 'unclear')
+
+    Returns:
+        Document comparison result dict with summary and individual comparisons
+
+    Raises:
+        NotFoundError: If specification or submittal document not found
+        ComparisonError: If comparison fails
+    """
+    try:
+        logger.info(
+            f"Starting document comparison: spec_document_id={spec_document_id}, "
+            f"submittal_document_id={submittal_document_id}, strategy={retrieval_strategy}"
+        )
+
+        # Import get_facts_by_document
+        from app.db.mongodb import get_facts_by_document, get_document
+        import uuid
+        from datetime import datetime
+
+        # Verify both documents exist
+        spec_doc = await get_document(db, spec_document_id)
+        if not spec_doc:
+            raise NotFoundError(f"Specification document not found: {spec_document_id}")
+
+        submittal_doc = await get_document(db, submittal_document_id)
+        if not submittal_doc:
+            raise NotFoundError(f"Submittal document not found: {submittal_document_id}")
+
+        # Retrieve all facts from the specification document
+        facts = await get_facts_by_document(db, spec_document_id, limit=1000, offset=0)
+
+        if not facts:
+            logger.warning(f"No facts found for document {spec_document_id}")
+            return {
+                "comparison_id": str(uuid.uuid4()),
+                "spec_document_id": spec_document_id,
+                "submittal_document_id": submittal_document_id,
+                "total_facts": 0,
+                "status": "completed",
+                "summary": {"consistent": 0, "inconsistent": 0, "unclear": 0},
+                "comparisons": [],
+                "compared_at": datetime.utcnow(),
+            }
+
+        logger.info(f"Retrieved {len(facts)} facts from document {spec_document_id}")
+
+        # Compare each fact against the submittal
+        all_comparisons = []
+        summary = {"consistent": 0, "inconsistent": 0, "unclear": 0}
+
+        for fact in facts:
+            try:
+                # Convert Fact model to dict for comparison
+                spec_fact = {
+                    "entity": fact.entity,
+                    "attribute": fact.attribute,
+                    "value": fact.value,
+                    "operator": fact.operator if hasattr(fact, "operator") else "=",
+                }
+
+                # Perform comparison
+                comparison_result = await compare_spec_to_submittal(
+                    spec_fact=spec_fact,
+                    submittal_document_id=submittal_document_id,
+                    db=db,
+                    qdrant_client=qdrant_client,
+                    llm_client=llm_client,
+                    retrieval_strategy=retrieval_strategy,
+                    top_k=top_k,
+                )
+
+                # Update summary
+                verdict = comparison_result.get("verdict", "unclear")
+                if verdict in summary:
+                    summary[verdict] += 1
+
+                all_comparisons.append(comparison_result)
+
+            except Exception as e:
+                logger.error(f"Failed to compare fact {fact.fact_id}: {str(e)}")
+                # Continue with other facts even if one fails
+                summary["unclear"] += 1
+                all_comparisons.append(
+                    {
+                        "comparison_id": str(uuid.uuid4()),
+                        "spec_fact": {
+                            "entity": fact.entity,
+                            "attribute": fact.attribute,
+                            "value": fact.value,
+                        },
+                        "submittal_document_id": submittal_document_id,
+                        "verdict": "unclear",
+                        "confidence": 0.0,
+                        "submittal_evidence": "",
+                        "reasoning": f"Comparison failed: {str(e)}",
+                        "retrieved_chunks": [],
+                        "retrieval_strategy": retrieval_strategy,
+                        "compared_at": datetime.utcnow(),
+                    }
+                )
+
+        # Apply verdict filter if specified
+        if verdict_filter:
+            all_comparisons = [c for c in all_comparisons if c.get("verdict") == verdict_filter]
+
+        # Apply pagination
+        total_comparisons = len(all_comparisons)
+        paginated_comparisons = all_comparisons[offset : offset + limit]
+
+        logger.info(
+            f"Document comparison completed: {total_comparisons} total comparisons, "
+            f"returning {len(paginated_comparisons)} (offset={offset}, limit={limit})"
+        )
+
+        return {
+            "comparison_id": str(uuid.uuid4()),
+            "spec_document_id": spec_document_id,
+            "submittal_document_id": submittal_document_id,
+            "total_facts": len(facts),
+            "status": "completed",
+            "summary": summary,
+            "comparisons": paginated_comparisons,
+            "compared_at": datetime.utcnow(),
+        }
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Document comparison failed: {str(e)}", exc_info=True)
+        raise ComparisonError(f"Document comparison failed: {str(e)}")
