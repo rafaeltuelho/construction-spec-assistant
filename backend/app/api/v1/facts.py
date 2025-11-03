@@ -199,7 +199,7 @@ async def get_extraction_job_status(job_id: str):
             completed_at=job.completed_at,
             facts_extracted=job.facts_extracted,
             facts_deduplicated=job.facts_deduplicated,
-            error=job.error_message
+            error=job.error
         )
         
     except NotFoundError as e:
