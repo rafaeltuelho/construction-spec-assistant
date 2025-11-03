@@ -588,7 +588,16 @@ Determine if the submittal meets the specification requirement.
 
 ## 4. Comparison Service
 
-### Module: `backend/app/services/comparison_agent.py`
+### Module: `backend/app/services/comparison.py`
+
+The comparison service provides two main functions:
+
+1. **Single Fact Comparison**: Compare one specification fact against a submittal
+2. **Document-Level Comparison**: Compare all facts from a specification document against a submittal
+
+---
+
+### 4.1 Single Fact Comparison
 
 ```python
 from typing import Dict
@@ -599,39 +608,195 @@ logger = logging.getLogger(__name__)
 async def compare_spec_to_submittal(
     spec_fact: dict,
     submittal_document_id: str,
-    retriever: BaseRetriever,
-    llm_client: ChatOpenAI
+    db: AsyncIOMotorDatabase,
+    qdrant_client: QdrantClient,
+    llm_client: ChatOpenAI,
+    retrieval_strategy: str = "ensemble",
+    top_k: int = 5
 ) -> dict:
     """
     Compare a specification fact against a submittal document.
-    
+
     Args:
-        spec_fact: Specification fact dict
+        spec_fact: Specification fact dict with entity, attribute, value, operator
         submittal_document_id: Submittal document ID
-        retriever: Retriever instance
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
         llm_client: OpenAI LLM client
-    
+        retrieval_strategy: "dense", "sparse", or "ensemble" (default)
+        top_k: Number of documents to retrieve
+
     Returns:
-        Comparison result dict
+        Comparison result dict with verdict, confidence, evidence, reasoning
     """
     # Build query
     query_terms = build_query_terms_from_fact(spec_fact)
-    
+
+    # Create retriever based on strategy
+    retriever = await _create_retriever(
+        strategy=retrieval_strategy,
+        submittal_document_id=submittal_document_id,
+        db=db,
+        qdrant_client=qdrant_client
+    )
+
     # Create comparison graph
-    graph = create_comparison_graph(retriever, llm_client)
-    
+    filters = {"document_id": submittal_document_id}
+    graph = create_comparison_graph(
+        retriever=retriever,
+        llm_client=llm_client,
+        top_k=top_k,
+        filters=filters
+    )
+
     # Run comparison
     initial_state = ComparisonState(
         spec_fact=spec_fact,
         query=query_terms.dense,
         retrieved_docs=[],
-        result={}
+        result={},
+        error=""
     )
-    
+
     final_state = await graph.ainvoke(initial_state)
-    
+
     return final_state["result"]
 ```
+
+---
+
+### 4.2 Document-Level Comparison
+
+This function compares **all extracted facts** from a specification document against a submittal document in a single operation.
+
+```python
+async def compare_document_to_submittal(
+    spec_document_id: str,
+    submittal_document_id: str,
+    db: AsyncIOMotorDatabase,
+    qdrant_client: QdrantClient,
+    llm_client: ChatOpenAI,
+    retrieval_strategy: str = "ensemble",
+    top_k: int = 5,
+    limit: int = 100,
+    offset: int = 0,
+    verdict_filter: str = None
+) -> Dict[str, Any]:
+    """
+    Compare all facts from a specification document against a submittal document.
+
+    Workflow:
+    1. Verify both documents exist in MongoDB
+    2. Retrieve all facts from specification document
+    3. For each fact, perform single fact comparison
+    4. Aggregate results with summary statistics
+    5. Apply verdict filter if specified
+    6. Apply pagination (limit/offset)
+    7. Return aggregated results
+
+    Args:
+        spec_document_id: Specification document ID containing facts
+        submittal_document_id: Submittal document ID to compare against
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+        retrieval_strategy: "dense", "sparse", or "ensemble" (default)
+        top_k: Number of documents to retrieve per fact
+        limit: Maximum number of comparisons to return (default: 100)
+        offset: Pagination offset (default: 0)
+        verdict_filter: Optional filter by verdict ('consistent', 'inconsistent', 'unclear')
+
+    Returns:
+        Document comparison result dict:
+        {
+            "comparison_id": "comp_doc_888",
+            "spec_document_id": "doc_spec_123",
+            "submittal_document_id": "doc_submittal_456",
+            "total_facts": 67,
+            "status": "completed",
+            "summary": {
+                "consistent": 45,
+                "inconsistent": 12,
+                "unclear": 10
+            },
+            "comparisons": [
+                {
+                    "comparison_id": "comp_789",
+                    "spec_fact": {...},
+                    "verdict": "consistent",
+                    "confidence": 0.92,
+                    "submittal_evidence": "...",
+                    "retrieved_chunks": [...],
+                    "reasoning": "..."
+                },
+                ...
+            ],
+            "compared_at": "2025-10-22T18:40:00Z"
+        }
+
+    Raises:
+        NotFoundError: If specification or submittal document not found
+        ComparisonError: If comparison fails
+    """
+    # Retrieve all facts from specification document
+    facts = await get_facts_by_document(db, spec_document_id, limit=1000, offset=0)
+
+    # Compare each fact against submittal
+    all_comparisons = []
+    summary = {"consistent": 0, "inconsistent": 0, "unclear": 0}
+
+    for fact in facts:
+        spec_fact = {
+            "entity": fact.entity,
+            "attribute": fact.attribute,
+            "value": fact.value,
+            "operator": fact.operator if hasattr(fact, "operator") else "="
+        }
+
+        comparison_result = await compare_spec_to_submittal(
+            spec_fact=spec_fact,
+            submittal_document_id=submittal_document_id,
+            db=db,
+            qdrant_client=qdrant_client,
+            llm_client=llm_client,
+            retrieval_strategy=retrieval_strategy,
+            top_k=top_k
+        )
+
+        verdict = comparison_result.get("verdict", "unclear")
+        if verdict in summary:
+            summary[verdict] += 1
+
+        all_comparisons.append(comparison_result)
+
+    # Apply verdict filter and pagination
+    if verdict_filter:
+        all_comparisons = [c for c in all_comparisons if c.get("verdict") == verdict_filter]
+
+    paginated_comparisons = all_comparisons[offset:offset + limit]
+
+    return {
+        "comparison_id": str(uuid.uuid4()),
+        "spec_document_id": spec_document_id,
+        "submittal_document_id": submittal_document_id,
+        "total_facts": len(facts),
+        "status": "completed",
+        "summary": summary,
+        "comparisons": paginated_comparisons,
+        "compared_at": datetime.utcnow()
+    }
+```
+
+**Key Features**:
+- **Batch Processing**: Compares all facts in one request
+- **Summary Statistics**: Returns counts of consistent/inconsistent/unclear verdicts
+- **Filtering**: Optional verdict filter to show only specific results
+- **Pagination**: Supports limit/offset for large result sets
+- **Error Handling**: Continues processing even if individual fact comparisons fail
+
+**API Endpoint**: `POST /api/v1/comparison/compare-document`
+
+See `specs/03-api-design.md` for full API specification.
 
 ---
 
