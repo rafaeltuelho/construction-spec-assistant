@@ -1,0 +1,315 @@
+"""
+Comparison API endpoints for spec-to-submittal comparison.
+
+This module provides REST API endpoints for comparing specification facts
+against submittal documents using hybrid search and LLM comparison.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from qdrant_client import QdrantClient
+from langchain_openai import ChatOpenAI
+from typing import Dict, Any
+import uuid
+import logging
+from datetime import datetime
+
+from backend.app.api.schemas.comparison import (
+    CompareRequest,
+    ComparisonResult,
+    BatchCompareRequest,
+    BatchComparisonResponse,
+    BatchComparisonStatus,
+    RetrievedChunk,
+)
+from backend.app.services.comparison import compare_spec_to_submittal, compare_batch
+from backend.app.dependencies import get_mongodb, get_qdrant, get_llm_client
+from backend.app.utils.exceptions import NotFoundError, ComparisonError
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# In-memory storage for batch jobs (in production, use Redis or database)
+_batch_jobs: Dict[str, BatchComparisonStatus] = {}
+
+
+@router.post(
+    "/compare",
+    response_model=ComparisonResult,
+    status_code=status.HTTP_200_OK,
+    summary="Compare specification fact against submittal",
+    description="""
+    Compare a single specification fact against a submittal document.
+    
+    The comparison workflow:
+    1. Build query from spec fact (dense + sparse representations)
+    2. Retrieve relevant submittal chunks using hybrid search
+    3. Compare spec requirement against retrieved evidence using LLM
+    4. Return verdict (consistent/inconsistent/unclear) with confidence and reasoning
+    
+    **Retrieval Strategies**:
+    - `dense`: Vector similarity search (semantic)
+    - `sparse`: BM25 keyword search (lexical)
+    - `ensemble`: Weighted combination of dense + sparse (recommended)
+    """,
+)
+async def compare_spec_to_submittal_endpoint(
+    request: CompareRequest,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+    qdrant_client: QdrantClient = Depends(get_qdrant),
+    llm_client: ChatOpenAI = Depends(get_llm_client),
+) -> ComparisonResult:
+    """
+    Compare a specification fact against a submittal document.
+
+    Args:
+        request: Comparison request with spec fact and submittal document ID
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+
+    Returns:
+        Comparison result with verdict, confidence, evidence, and reasoning
+
+    Raises:
+        HTTPException: If comparison fails or document not found
+    """
+    try:
+        logger.info(
+            f"Comparison request: submittal_document_id={request.submittal_document_id}, "
+            f"strategy={request.retrieval_strategy}, top_k={request.top_k}"
+        )
+
+        # Validate retrieval strategy
+        if request.retrieval_strategy not in ["dense", "sparse", "ensemble"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid retrieval strategy: {request.retrieval_strategy}. "
+                f"Must be 'dense', 'sparse', or 'ensemble'.",
+            )
+
+        # Perform comparison
+        result = await compare_spec_to_submittal(
+            spec_fact=request.spec_fact,
+            submittal_document_id=request.submittal_document_id,
+            db=db,
+            qdrant_client=qdrant_client,
+            llm_client=llm_client,
+            retrieval_strategy=request.retrieval_strategy,
+            top_k=request.top_k,
+        )
+
+        # Build response
+        comparison_result = ComparisonResult(
+            comparison_id=str(uuid.uuid4()),
+            spec_fact=result["spec_fact"],
+            submittal_document_id=result["submittal_document_id"],
+            verdict=result["verdict"],
+            confidence=result["confidence"],
+            submittal_evidence=result["submittal_evidence"],
+            reasoning=result["reasoning"],
+            retrieved_chunks=[
+                RetrievedChunk(**chunk) for chunk in result.get("retrieved_chunks", [])
+            ],
+            retrieval_strategy=result["retrieval_strategy"],
+            compared_at=datetime.utcnow(),
+        )
+
+        logger.info(
+            f"Comparison complete: verdict={comparison_result.verdict}, "
+            f"confidence={comparison_result.confidence:.2f}"
+        )
+
+        return comparison_result
+
+    except NotFoundError as e:
+        logger.error(f"Document not found: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ComparisonError as e:
+        logger.error(f"Comparison failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during comparison: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Comparison failed: {str(e)}"
+        )
+
+
+@router.post(
+    "/batch",
+    response_model=BatchComparisonResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Batch compare multiple specification facts",
+    description="""
+    Compare multiple specification facts against a submittal document.
+    
+    This endpoint initiates a batch comparison job and returns immediately.
+    Use the returned `batch_id` to check the status and retrieve results.
+    
+    **Note**: In production, this should use a task queue (e.g., Celery, RQ).
+    Currently, it processes synchronously but returns 202 Accepted.
+    """,
+)
+async def batch_compare_endpoint(
+    request: BatchCompareRequest,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+    qdrant_client: QdrantClient = Depends(get_qdrant),
+    llm_client: ChatOpenAI = Depends(get_llm_client),
+) -> BatchComparisonResponse:
+    """
+    Batch compare multiple specification facts against a submittal document.
+
+    Args:
+        request: Batch comparison request with spec facts and submittal document ID
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+
+    Returns:
+        Batch comparison response with batch_id and status
+
+    Raises:
+        HTTPException: If batch comparison fails
+    """
+    try:
+        batch_id = str(uuid.uuid4())
+
+        logger.info(
+            f"Batch comparison request: batch_id={batch_id}, "
+            f"total_facts={len(request.spec_facts)}, "
+            f"submittal_document_id={request.submittal_document_id}"
+        )
+
+        # Validate retrieval strategy
+        if request.retrieval_strategy not in ["dense", "sparse", "ensemble"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid retrieval strategy: {request.retrieval_strategy}",
+            )
+
+        # Create batch job
+        batch_job = BatchComparisonStatus(
+            batch_id=batch_id,
+            total_facts=len(request.spec_facts),
+            completed_facts=0,
+            status="processing",
+            results=[],
+            created_at=datetime.utcnow(),
+        )
+        _batch_jobs[batch_id] = batch_job
+
+        # Process batch (in production, this should be async with a task queue)
+        try:
+            results = await compare_batch(
+                spec_facts=request.spec_facts,
+                submittal_document_id=request.submittal_document_id,
+                db=db,
+                qdrant_client=qdrant_client,
+                llm_client=llm_client,
+                retrieval_strategy=request.retrieval_strategy,
+                top_k=request.top_k,
+            )
+
+            # Convert results to ComparisonResult objects
+            comparison_results = []
+            for result in results:
+                comparison_results.append(
+                    ComparisonResult(
+                        comparison_id=str(uuid.uuid4()),
+                        spec_fact=result["spec_fact"],
+                        submittal_document_id=result["submittal_document_id"],
+                        verdict=result["verdict"],
+                        confidence=result["confidence"],
+                        submittal_evidence=result["submittal_evidence"],
+                        reasoning=result["reasoning"],
+                        retrieved_chunks=[
+                            RetrievedChunk(**chunk) for chunk in result.get("retrieved_chunks", [])
+                        ],
+                        retrieval_strategy=result["retrieval_strategy"],
+                        compared_at=datetime.utcnow(),
+                    )
+                )
+
+            # Update batch job
+            batch_job.status = "completed"
+            batch_job.completed_facts = len(results)
+            batch_job.results = comparison_results
+            batch_job.completed_at = datetime.utcnow()
+
+            logger.info(f"Batch comparison complete: batch_id={batch_id}, results={len(results)}")
+
+        except Exception as e:
+            logger.error(f"Batch comparison failed: {e}", exc_info=True)
+            batch_job.status = "failed"
+            batch_job.error = str(e)
+            batch_job.completed_at = datetime.utcnow()
+
+        return BatchComparisonResponse(
+            batch_id=batch_id,
+            status=batch_job.status,
+            total_facts=batch_job.total_facts,
+            message=f"Batch comparison {batch_job.status}",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to initiate batch comparison: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initiate batch comparison: {str(e)}",
+        )
+
+
+@router.get(
+    "/batch/{batch_id}",
+    response_model=BatchComparisonStatus,
+    status_code=status.HTTP_200_OK,
+    summary="Get batch comparison results",
+    description="""
+    Retrieve the status and results of a batch comparison job.
+    
+    **Status values**:
+    - `pending`: Job is queued but not started
+    - `processing`: Job is currently running
+    - `completed`: Job finished successfully
+    - `failed`: Job failed with an error
+    """,
+)
+async def get_batch_results(batch_id: str) -> BatchComparisonStatus:
+    """
+    Get batch comparison results.
+
+    Args:
+        batch_id: Batch job identifier
+
+    Returns:
+        Batch comparison status with results if completed
+
+    Raises:
+        HTTPException: If batch job not found
+    """
+    try:
+        logger.info(f"Retrieving batch results: batch_id={batch_id}")
+
+        if batch_id not in _batch_jobs:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Batch job not found: {batch_id}"
+            )
+
+        batch_job = _batch_jobs[batch_id]
+
+        logger.info(
+            f"Batch status: batch_id={batch_id}, status={batch_job.status}, "
+            f"completed={batch_job.completed_facts}/{batch_job.total_facts}"
+        )
+
+        return batch_job
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve batch results: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve batch results: {str(e)}",
+        )
