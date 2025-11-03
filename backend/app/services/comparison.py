@@ -328,10 +328,10 @@ async def compare_document_to_submittal(
             try:
                 # Convert Fact model to dict for comparison
                 spec_fact = {
-                    "entity": fact.entity,
-                    "attribute": fact.attribute,
-                    "value": fact.value,
-                    "operator": fact.operator if hasattr(fact, "operator") else "=",
+                    "entity": fact.entity.model_dump(),
+                    "attribute": fact.attribute.model_dump(),
+                    "value": fact.value.model_dump(),
+                    "op": fact.op,
                 }
 
                 # Perform comparison
@@ -353,16 +353,16 @@ async def compare_document_to_submittal(
                 all_comparisons.append(comparison_result)
 
             except Exception as e:
-                logger.error(f"Failed to compare fact {fact.fact_id}: {str(e)}")
+                logger.error(f"Failed to compare fact {fact.id}: {str(e)}")
                 # Continue with other facts even if one fails
                 summary["unclear"] += 1
                 all_comparisons.append(
                     {
                         "comparison_id": str(uuid.uuid4()),
                         "spec_fact": {
-                            "entity": fact.entity,
-                            "attribute": fact.attribute,
-                            "value": fact.value,
+                            "entity": fact.entity.model_dump(),
+                            "attribute": fact.attribute.model_dump(),
+                            "value": fact.value.model_dump(),
                         },
                         "submittal_document_id": submittal_document_id,
                         "verdict": "unclear",
