@@ -199,6 +199,11 @@ async def init_qdrant() -> None:
             logger.info(f"Connecting to Qdrant at {settings.qdrant_host}:{settings.qdrant_port}")
             _qdrant_client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
+        # Ensure collection exists
+        from app.db.qdrant import ensure_collection_exists
+
+        await ensure_collection_exists(_qdrant_client, settings.qdrant_collection_name)
+
         logger.info("Qdrant client initialized")
 
     except Exception as e:

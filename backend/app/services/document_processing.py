@@ -17,6 +17,7 @@ from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
 
+from app.config import settings
 from app.core.docling_parser import parse_document_with_fallback, validate_pdf_file
 from app.core.sectionizer import sectionize_markdown, flatten_sections, count_sections
 from app.core.chunker import chunk_sections, get_chunk_statistics, simple_chunk_markdown
@@ -25,7 +26,7 @@ from app.db.mongodb import (
     update_document_status,
     update_document,
     store_document_sections,
-    store_document_chunks
+    store_document_chunks,
 )
 from app.db.qdrant import index_chunks_in_qdrant
 from app.models.document import (
@@ -36,7 +37,7 @@ from app.models.document import (
     DocumentSection,
     DocumentChunk,
     ProcessingStats,
-    ProcessingError
+    ProcessingError,
 )
 from app.utils.logging import get_logger
 from app.utils.exceptions import DocumentProcessingError
@@ -52,7 +53,7 @@ async def process_document(
     title: Optional[str] = None,
     use_ocr: bool = True,
     max_chunk_tokens: int = 500,
-    chunk_overlap_tokens: int = 50
+    chunk_overlap_tokens: int = 50,
 ) -> Document:
     """
     Process a PDF document through the full pipeline.
@@ -80,7 +81,9 @@ async def process_document(
     document_id = str(uuid.uuid4())
     doc_title = title or pdf_path.stem
 
-    logger.info(f"Starting document processing: {doc_title} ({document_id}) [type={document_type.value}]")
+    logger.info(
+        f"Starting document processing: {doc_title} ({document_id}) [type={document_type.value}]"
+    )
 
     # Validate PDF
     if not validate_pdf_file(pdf_path):
@@ -91,40 +94,37 @@ async def process_document(
         document_type=document_type,
         filename=pdf_path.name,
         file_size=pdf_path.stat().st_size,
-        mime_type="application/pdf"
+        mime_type="application/pdf",
     )
-    
+
     document = Document(
-        document_id=document_id,
-        title=doc_title,
-        status=DocumentStatus.PENDING,
-        metadata=metadata
+        document_id=document_id, title=doc_title, status=DocumentStatus.PENDING, metadata=metadata
     )
-    
+
     # Store initial document
     await store_document(mongodb, document)
-    
+
     try:
         # Update status to processing
         await update_document_status(mongodb, document_id, DocumentStatus.PROCESSING)
-        
+
         # Step 1: Parse PDF with Docling
         logger.info(f"[{document_id}] Step 1: Parsing PDF")
         markdown_content, parse_metadata = await parse_document_with_fallback(
-            pdf_path,
-            try_without_ocr_first=not use_ocr
+            pdf_path, try_without_ocr_first=not use_ocr
         )
-        
+
         # Update metadata
         metadata.used_ocr = parse_metadata["used_ocr"]
         metadata.ocr_engine = parse_metadata.get("ocr_engine")
         metadata.parse_time = parse_metadata["parse_time"]
         metadata.processing_timestamp = datetime.utcnow()
-        
-        await update_document(mongodb, document_id, {
-            "markdown_content": markdown_content,
-            "metadata": metadata.model_dump()
-        })
+
+        await update_document(
+            mongodb,
+            document_id,
+            {"markdown_content": markdown_content, "metadata": metadata.model_dump()},
+        )
 
         # Step 2 & 3: Process based on document type
         if document_type == DocumentType.SPECIFICATION:
@@ -141,9 +141,7 @@ async def process_document(
             # Step 3: Chunk sections with CSI hierarchy
             logger.info(f"[{document_id}] Step 3: Chunking sections (CSI-aware)")
             chunks = chunk_sections(
-                sections,
-                max_tokens=max_chunk_tokens,
-                overlap_tokens=chunk_overlap_tokens
+                sections, max_tokens=max_chunk_tokens, overlap_tokens=chunk_overlap_tokens
             )
 
             chunk_stats = get_chunk_statistics(chunks)
@@ -162,7 +160,7 @@ async def process_document(
                     level=section.level,
                     section_number=section.section_number,
                     content=section.content,
-                    order_index=idx
+                    order_index=idx,
                 )
                 document_sections.append(doc_section)
 
@@ -170,14 +168,14 @@ async def process_document(
 
         else:
             # Submittal/Product Description/Drawing: Use simple chunking
-            logger.info(f"[{document_id}] Step 2: Skipping CSI sectionization (document type: {document_type.value})")
+            logger.info(
+                f"[{document_id}] Step 2: Skipping CSI sectionization (document type: {document_type.value})"
+            )
 
             # Step 3: Simple chunking without hierarchy
             logger.info(f"[{document_id}] Step 3: Simple chunking (paragraph-based)")
             chunks = simple_chunk_markdown(
-                markdown_content,
-                max_tokens=max_chunk_tokens,
-                overlap_tokens=chunk_overlap_tokens
+                markdown_content, max_tokens=max_chunk_tokens, overlap_tokens=chunk_overlap_tokens
             )
 
             chunk_stats = get_chunk_statistics(chunks)
@@ -186,7 +184,7 @@ async def process_document(
             # No sections to store for non-CSI documents
             section_counts = {}
             document_sections = []
-        
+
         # Step 5: Store chunks in MongoDB
         logger.info(f"[{document_id}] Step 5: Storing chunks")
         document_chunks = []
@@ -201,54 +199,56 @@ async def process_document(
                 content=chunk.content,
                 token_count=chunk.token_count,
                 chunk_index=chunk.chunk_index,
-                total_chunks=chunk.total_chunks
+                total_chunks=chunk.total_chunks,
             )
             document_chunks.append(doc_chunk)
-        
+
         await store_document_chunks(mongodb, document_chunks)
 
         # Step 6: Index chunks in Qdrant (ONLY for submittals/product descriptions, NOT specifications)
         # Per notebook logic: CSI specs are used for fact extraction only, not vector search
         # Only submittals/product descriptions are indexed for retrieval
         if document_type != DocumentType.SPECIFICATION:
-            logger.info(f"[{document_id}] Step 6: Indexing in Qdrant (document type: {document_type.value})")
-            await index_chunks_in_qdrant(qdrant, document_chunks)
+            logger.info(
+                f"[{document_id}] Step 6: Indexing in Qdrant (document type: {document_type.value})"
+            )
+            await index_chunks_in_qdrant(qdrant, document_chunks, settings.qdrant_collection_name)
         else:
-            logger.info(f"[{document_id}] Step 6: Skipping Qdrant indexing (CSI specifications are not vector-indexed)")
-        
+            logger.info(
+                f"[{document_id}] Step 6: Skipping Qdrant indexing (CSI specifications are not vector-indexed)"
+            )
+
         # Update processing stats
         processing_stats = ProcessingStats(
             total_sections=len(document_sections),
             sections_by_level=section_counts,
             total_chunks=chunk_stats["total_chunks"],
             total_tokens=chunk_stats["total_tokens"],
-            avg_chunk_tokens=chunk_stats["avg_tokens"]
+            avg_chunk_tokens=chunk_stats["avg_tokens"],
         )
-        
-        await update_document(mongodb, document_id, {
-            "status": DocumentStatus.COMPLETED.value,
-            "processing_stats": processing_stats.model_dump()
-        })
-        
+
+        await update_document(
+            mongodb,
+            document_id,
+            {
+                "status": DocumentStatus.COMPLETED.value,
+                "processing_stats": processing_stats.model_dump(),
+            },
+        )
+
         logger.info(f"[{document_id}] Document processing completed successfully")
-        
+
         # Return updated document
         document.status = DocumentStatus.COMPLETED
         document.markdown_content = markdown_content
         document.processing_stats = processing_stats
-        
+
         return document
-        
+
     except Exception as e:
         logger.error(f"[{document_id}] Document processing failed: {str(e)}")
-        
-        # Update status to failed
-        await update_document_status(
-            mongodb,
-            document_id,
-            DocumentStatus.FAILED,
-            error=str(e)
-        )
-        
-        raise DocumentProcessingError(f"Document processing failed: {str(e)}")
 
+        # Update status to failed
+        await update_document_status(mongodb, document_id, DocumentStatus.FAILED, error=str(e))
+
+        raise DocumentProcessingError(f"Document processing failed: {str(e)}")
