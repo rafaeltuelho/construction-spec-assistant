@@ -222,7 +222,8 @@ async def _create_retriever(
             metadata={
                 "chunk_id": chunk.chunk_id,
                 "document_id": chunk.document_id,
-                "section_path": " > ".join(chunk.section_path) if chunk.section_path else "",
+                "section_title": chunk.section_title,
+                "section_number": chunk.section_number or "",
             },
         )
         for chunk in chunks
