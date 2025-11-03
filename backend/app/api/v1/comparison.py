@@ -5,7 +5,7 @@ This module provides REST API endpoints for comparing specification facts
 against submittal documents using hybrid search and LLM comparison.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
 from langchain_openai import ChatOpenAI
@@ -41,6 +41,71 @@ router = APIRouter()
 # In-memory storage for jobs (in production, use Redis or database)
 _batch_jobs: Dict[str, BatchComparisonStatus] = {}
 _document_jobs: Dict[str, DocumentComparisonStatus] = {}
+
+
+async def run_document_comparison(
+    job_id: str,
+    spec_document_id: str,
+    submittal_document_id: str,
+    retrieval_strategy: str,
+    top_k: int,
+    db: AsyncIOMotorDatabase,
+    qdrant_client: QdrantClient,
+    llm_client: ChatOpenAI,
+):
+    """
+    Background task to run document comparison.
+
+    Args:
+        job_id: Job identifier
+        spec_document_id: Specification document ID
+        submittal_document_id: Submittal document ID
+        retrieval_strategy: Retrieval strategy (dense, sparse, ensemble)
+        top_k: Number of chunks to retrieve
+        db: MongoDB database instance
+        qdrant_client: Qdrant client instance
+        llm_client: OpenAI LLM client
+    """
+    try:
+        logger.info(f"Starting document comparison job: job_id={job_id}")
+
+        # Update job status to processing
+        _document_jobs[job_id].status = "processing"
+
+        # Perform document comparison
+        result = await compare_document_to_submittal(
+            spec_document_id=spec_document_id,
+            submittal_document_id=submittal_document_id,
+            db=db,
+            qdrant_client=qdrant_client,
+            llm_client=llm_client,
+            retrieval_strategy=retrieval_strategy,
+            top_k=top_k,
+        )
+
+        # Convert results to ComparisonResult objects
+        from app.api.schemas.comparison import ComparisonSummary
+
+        comparison_results = [ComparisonResult(**comp) for comp in result["comparisons"]]
+
+        # Update job status to completed
+        _document_jobs[job_id].status = "completed"
+        _document_jobs[job_id].completed_facts = len(comparison_results)
+        _document_jobs[job_id].summary = ComparisonSummary(**result["summary"])
+        _document_jobs[job_id].comparisons = comparison_results
+        _document_jobs[job_id].completed_at = datetime.utcnow()
+
+        logger.info(
+            f"Document comparison job completed: job_id={job_id}, "
+            f"total_facts={_document_jobs[job_id].total_facts}, "
+            f"completed={len(comparison_results)}"
+        )
+
+    except Exception as e:
+        logger.error(f"Document comparison job failed: job_id={job_id}, error={e}", exc_info=True)
+        _document_jobs[job_id].status = "failed"
+        _document_jobs[job_id].error = str(e)
+        _document_jobs[job_id].completed_at = datetime.utcnow()
 
 
 @router.post(
@@ -173,6 +238,7 @@ async def compare_spec_to_submittal_endpoint(
 )
 async def compare_document_to_submittal_endpoint(
     request: CompareDocumentRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
     llm_client: ChatOpenAI = Depends(get_llm_client),
@@ -182,6 +248,7 @@ async def compare_document_to_submittal_endpoint(
 
     Args:
         request: Document comparison request with spec and submittal document IDs
+        background_tasks: FastAPI background tasks
         db: MongoDB database instance
         qdrant_client: Qdrant client instance
         llm_client: OpenAI LLM client
@@ -193,10 +260,8 @@ async def compare_document_to_submittal_endpoint(
         HTTPException: If job initiation fails
     """
     try:
-        job_id = str(uuid.uuid4())
-
         logger.info(
-            f"Initiating document comparison job: job_id={job_id}, "
+            f"Initiating document comparison job: "
             f"spec_document_id={request.spec_document_id}, "
             f"submittal_document_id={request.submittal_document_id}"
         )
@@ -221,61 +286,44 @@ async def compare_document_to_submittal_endpoint(
                 detail=f"No facts found for specification document: {request.spec_document_id}",
             )
 
-        # Create document comparison job
+        # Create job ID
+        job_id = str(uuid.uuid4())
+
+        # Create document comparison job with "pending" status
         document_job = DocumentComparisonStatus(
             job_id=job_id,
             spec_document_id=request.spec_document_id,
             submittal_document_id=request.submittal_document_id,
             total_facts=total_facts,
             completed_facts=0,
-            status="processing",
+            status="pending",
             comparisons=[],
             created_at=datetime.utcnow(),
         )
         _document_jobs[job_id] = document_job
 
-        # Process comparison asynchronously (in production, use task queue)
-        try:
-            result = await compare_document_to_submittal(
-                spec_document_id=request.spec_document_id,
-                submittal_document_id=request.submittal_document_id,
-                db=db,
-                qdrant_client=qdrant_client,
-                llm_client=llm_client,
-                retrieval_strategy=request.retrieval_strategy,
-                top_k=request.top_k,
-            )
+        # Start background task
+        background_tasks.add_task(
+            run_document_comparison,
+            job_id=job_id,
+            spec_document_id=request.spec_document_id,
+            submittal_document_id=request.submittal_document_id,
+            retrieval_strategy=request.retrieval_strategy,
+            top_k=request.top_k,
+            db=db,
+            qdrant_client=qdrant_client,
+            llm_client=llm_client,
+        )
 
-            # Convert results to ComparisonResult objects
-            from app.api.schemas.comparison import ComparisonSummary
-
-            comparison_results = [ComparisonResult(**comp) for comp in result["comparisons"]]
-
-            # Update job status
-            document_job.status = "completed"
-            document_job.completed_facts = len(comparison_results)
-            document_job.summary = ComparisonSummary(**result["summary"])
-            document_job.comparisons = comparison_results
-            document_job.completed_at = datetime.utcnow()
-
-            logger.info(
-                f"Document comparison complete: job_id={job_id}, "
-                f"total_facts={total_facts}, completed={len(comparison_results)}"
-            )
-
-        except Exception as e:
-            logger.error(f"Document comparison failed: job_id={job_id}, error={e}", exc_info=True)
-            document_job.status = "failed"
-            document_job.error = str(e)
-            document_job.completed_at = datetime.utcnow()
+        logger.info(f"Document comparison job created: job_id={job_id}, total_facts={total_facts}")
 
         return DocumentComparisonResponse(
             job_id=job_id,
-            status=document_job.status,
+            status="pending",
             spec_document_id=request.spec_document_id,
             submittal_document_id=request.submittal_document_id,
             total_facts=total_facts,
-            message=f"Document comparison job {document_job.status}",
+            message=f"Document comparison job initiated with {total_facts} facts to compare",
         )
 
     except HTTPException:
