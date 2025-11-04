@@ -211,6 +211,7 @@ async def get_extraction_job_status(job_id: str):
             job_id=job.job_id,
             document_id=job.document_id,
             status=job.status,
+            progress=job.progress,  # Include progress field
             started_at=job.started_at,
             completed_at=job.completed_at,
             facts_extracted=job.facts_extracted,
