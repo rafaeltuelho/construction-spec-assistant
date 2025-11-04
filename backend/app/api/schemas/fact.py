@@ -10,16 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from app.models.fact import Entity, Attribute, Value, Context
-
-
-class FactExtractionProgress(BaseModel):
-    """Progress information for fact extraction."""
-
-    percentage: int = Field(default=0, ge=0, le=100, description="Progress percentage (0-100)")
-    chunks_processed: int = Field(default=0, description="Number of chunks processed")
-    total_chunks: int = Field(default=0, description="Total number of chunks")
-    estimated_completion: Optional[datetime] = Field(None, description="Estimated completion time")
+from app.models.fact import Entity, Attribute, Value, Context, FactExtractionProgress
 
 
 class FactExtractionRequest(BaseModel):

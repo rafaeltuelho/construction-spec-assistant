@@ -138,6 +138,15 @@ class Fact(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class FactExtractionProgress(BaseModel):
+    """Progress information for fact extraction."""
+
+    percentage: int = Field(default=0, ge=0, le=100, description="Progress percentage (0-100)")
+    chunks_processed: int = Field(default=0, description="Number of chunks processed")
+    total_chunks: int = Field(default=0, description="Total number of chunks")
+    estimated_completion: Optional[datetime] = Field(None, description="Estimated completion time")
+
+
 class FactExtractionJob(BaseModel):
     """
     Fact extraction job status.
@@ -150,6 +159,7 @@ class FactExtractionJob(BaseModel):
         completed_at: Job completion timestamp
         facts_extracted: Number of facts extracted
         facts_deduplicated: Number of facts after deduplication
+        progress: Progress information during extraction
         error: Error message if failed
     """
 
@@ -161,6 +171,9 @@ class FactExtractionJob(BaseModel):
     facts_extracted: Optional[int] = Field(None, description="Number of facts extracted")
     facts_deduplicated: Optional[int] = Field(
         None, description="Number of facts after deduplication"
+    )
+    progress: Optional[FactExtractionProgress] = Field(
+        None, description="Progress information during extraction"
     )
     error: Optional[str] = Field(None, description="Error message if failed")
 
