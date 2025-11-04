@@ -81,6 +81,23 @@ export function ResultsPage() {
     return comparisonData?.summary?.[verdict] || 0;
   };
 
+  const handleBulkAction = (action: 'disregard' | 'confirmed') => {
+    if (!comparisonData) return;
+
+    const filteredResults = filterResults(comparisonData.comparisons);
+    const newAnnotations = new Map(annotations);
+
+    filteredResults.forEach((result) => {
+      newAnnotations.set(result.comparison_id, {
+        comparison_id: result.comparison_id,
+        annotation_type: action,
+      });
+    });
+
+    setAnnotations(newAnnotations);
+    setSaveSuccess(false);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -246,6 +263,29 @@ export function ResultsPage() {
               </button>
             </nav>
           </div>
+
+          {/* Bulk Actions */}
+          {filteredResults.length > 0 && (
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                Bulk actions for {filteredResults.length} item{filteredResults.length !== 1 ? 's' : ''} in this tab:
+              </span>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => handleBulkAction('disregard')}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Disregard All
+                </button>
+                <button
+                  onClick={() => handleBulkAction('confirmed')}
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Confirm All
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Results Grid */}
@@ -255,13 +295,18 @@ export function ResultsPage() {
               <p className="text-gray-500">No results found for this category</p>
             </div>
           ) : (
-            filteredResults.map((result) => (
-              <ComparisonResultCard
-                key={result.comparison_id}
-                result={result}
-                onAnnotationChange={handleAnnotationChange}
-              />
-            ))
+            filteredResults.map((result) => {
+              const annotation = annotations.get(result.comparison_id);
+              return (
+                <ComparisonResultCard
+                  key={result.comparison_id}
+                  result={result}
+                  onAnnotationChange={handleAnnotationChange}
+                  initialAnnotation={annotation?.annotation_type || null}
+                  initialNoteText={annotation?.note_text || ''}
+                />
+              );
+            })
           )}
         </div>
 

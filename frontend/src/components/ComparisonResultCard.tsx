@@ -1,15 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ComparisonResult, AnnotationType } from '../types/api';
 
 interface ComparisonResultCardProps {
   result: ComparisonResult;
   onAnnotationChange: (comparisonId: string, annotationType: AnnotationType | null, noteText?: string) => void;
+  initialAnnotation?: AnnotationType | null;
+  initialNoteText?: string;
 }
 
-export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonResultCardProps) {
-  const [selectedAnnotation, setSelectedAnnotation] = useState<AnnotationType | null>(null);
-  const [noteText, setNoteText] = useState('');
+export function ComparisonResultCard({
+  result,
+  onAnnotationChange,
+  initialAnnotation = null,
+  initialNoteText = ''
+}: ComparisonResultCardProps) {
+  const [selectedAnnotation, setSelectedAnnotation] = useState<AnnotationType | null>(initialAnnotation);
+  const [noteText, setNoteText] = useState(initialNoteText);
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  // Update state when initial values change (e.g., when navigating between tabs)
+  useEffect(() => {
+    setSelectedAnnotation(initialAnnotation);
+    setNoteText(initialNoteText);
+  }, [initialAnnotation, initialNoteText]);
 
   const handleAnnotationClick = (type: AnnotationType) => {
     if (type === 'note') {
@@ -17,12 +31,17 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
       setSelectedAnnotation(type);
     } else {
       if (selectedAnnotation === type) {
-        // Deselect if clicking the same annotation
+        // Deselect if clicking the same annotation - expand card
         setSelectedAnnotation(null);
         onAnnotationChange(result.comparison_id, null);
+        setIsExpanded(true);
       } else {
         setSelectedAnnotation(type);
         onAnnotationChange(result.comparison_id, type);
+        // Auto-fold card for disregard and confirmed
+        if (type === 'disregard' || type === 'confirmed') {
+          setIsExpanded(false);
+        }
       }
     }
   };
@@ -32,6 +51,8 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
       setSelectedAnnotation('note');
       onAnnotationChange(result.comparison_id, 'note', noteText);
       setShowNoteInput(false);
+      // Fold card after saving note
+      setIsExpanded(false);
     }
   };
 
@@ -40,6 +61,7 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
     if (!noteText) {
       setSelectedAnnotation(null);
     }
+    // Don't fold on cancel - keep expanded
   };
 
   const getVerdictColor = () => {
@@ -90,14 +112,40 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
 
   const formatSpecFact = () => {
     const { entity, attribute, value, op } = result.spec_fact;
-    return `${entity || 'N/A'} - ${attribute || 'N/A'}: ${op || '='} ${value || 'N/A'}`;
+
+    // Helper to extract non-null values from an object
+    const extractNonNull = (obj: unknown): string => {
+      if (!obj || typeof obj !== 'object') return String(obj || 'N/A');
+
+      const values = Object.values(obj)
+        .filter(v => v !== null && v !== undefined)
+        .map(v => {
+          if (typeof v === 'object') {
+            return extractNonNull(v);
+          }
+          return String(v);
+        })
+        .filter(v => v && v !== 'N/A');
+
+      return values.length > 0 ? values.join(' ') : 'N/A';
+    };
+
+    const entityStr = extractNonNull(entity);
+    const attributeStr = extractNonNull(attribute);
+    const valueStr = extractNonNull(value);
+    const opStr = op || '=';
+
+    return `${entityStr} - ${attributeStr}: ${opStr} ${valueStr}`;
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
-      {/* Header with Verdict */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center space-x-2">
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+      {/* Header with Verdict - Always visible */}
+      <div
+        className="flex items-start justify-between p-6 cursor-pointer"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center space-x-2 flex-1">
           {getVerdictIcon()}
           <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getVerdictColor()}`}>
             {result.verdict.charAt(0).toUpperCase() + result.verdict.slice(1)}
@@ -105,8 +153,34 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
           <span className="text-sm text-gray-500">
             Confidence: {(result.confidence * 100).toFixed(0)}%
           </span>
+          {/* Show annotation badge when collapsed */}
+          {!isExpanded && selectedAnnotation && (
+            <span className="text-xs text-gray-500 ml-2">
+              ({selectedAnnotation === 'disregard' ? 'Disregarded' :
+                selectedAnnotation === 'confirmed' ? 'Confirmed' :
+                'Has Note'})
+            </span>
+          )}
         </div>
+        {/* Expand/Collapse Icon */}
+        <button className="text-gray-400 hover:text-gray-600 ml-2">
+          <svg
+            className={`h-5 w-5 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
       </div>
+
+      {/* Collapsible Content */}
+      {isExpanded && (
+        <div className="px-6 pb-6 border-t border-gray-100">{/* Add top border when expanded */}
 
       {/* Spec Fact */}
       <div className="mb-4">
@@ -155,8 +229,8 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
           onClick={() => handleAnnotationClick('note')}
           className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
             selectedAnnotation === 'note'
-              ? 'bg-blue-600 text-white'
-              : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+              ? 'bg-yellow-400 text-yellow-700'
+              : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
           }`}
         >
           Add Note
@@ -200,6 +274,8 @@ export function ComparisonResultCard({ result, onAnnotationChange }: ComparisonR
               Edit
             </button>
           </div>
+        </div>
+      )}
         </div>
       )}
     </div>
