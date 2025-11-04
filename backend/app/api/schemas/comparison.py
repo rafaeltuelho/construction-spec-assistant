@@ -7,7 +7,13 @@ These schemas define request and response models for spec-to-submittal compariso
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
-from app.models.comparison import AnnotationType, UserAnnotation
+from app.models.comparison import (
+    AnnotationType,
+    UserAnnotation,
+    ComparisonResult,
+    RetrievedChunk,
+    ComparisonSummary,
+)
 
 
 class CompareRequest(BaseModel):
@@ -23,37 +29,6 @@ class CompareRequest(BaseModel):
         default="ensemble", description="Retrieval strategy: 'dense', 'sparse', or 'ensemble'"
     )
     top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve")
-
-
-class RetrievedChunk(BaseModel):
-    """Schema for retrieved chunk information."""
-
-    chunk_id: str = Field(..., description="Unique chunk identifier")
-    content: str = Field(..., description="Chunk content (truncated)")
-    relevance_score: float = Field(..., description="Relevance score from retrieval")
-
-
-class ComparisonResult(BaseModel):
-    """Response schema for comparison result."""
-
-    comparison_id: str = Field(..., description="Unique comparison identifier")
-    spec_fact: Dict[str, Any] = Field(..., description="Original specification fact")
-    submittal_document_id: str = Field(..., description="Submittal document ID")
-    verdict: str = Field(
-        ..., description="Comparison verdict: 'consistent', 'inconsistent', or 'unclear'"
-    )
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0.0 to 1.0)")
-    submittal_evidence: str = Field(
-        ..., description="Direct quote from submittal supporting the verdict"
-    )
-    reasoning: str = Field(..., description="Explanation of the verdict")
-    retrieved_chunks: List[RetrievedChunk] = Field(
-        default_factory=list, description="Chunks retrieved for comparison"
-    )
-    retrieval_strategy: str = Field(..., description="Retrieval strategy used")
-    compared_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Timestamp of comparison"
-    )
 
 
 class BatchCompareRequest(BaseModel):
@@ -114,14 +89,6 @@ class CompareDocumentRequest(BaseModel):
         default="ensemble", description="Retrieval strategy: 'dense', 'sparse', or 'ensemble'"
     )
     top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve per fact")
-
-
-class ComparisonSummary(BaseModel):
-    """Summary statistics for document comparison."""
-
-    consistent: int = Field(..., description="Number of consistent facts")
-    inconsistent: int = Field(..., description="Number of inconsistent facts")
-    unclear: int = Field(..., description="Number of unclear facts")
 
 
 class DocumentComparisonResponse(BaseModel):

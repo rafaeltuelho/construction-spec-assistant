@@ -16,19 +16,23 @@ from datetime import datetime
 
 from app.api.schemas.comparison import (
     CompareRequest,
-    ComparisonResult,
     CompareDocumentRequest,
     DocumentComparisonResponse,
     DocumentComparisonStatus,
     BatchCompareRequest,
     BatchComparisonResponse,
     BatchComparisonStatus,
-    RetrievedChunk,
     SaveAnnotationsRequest,
     SaveAnnotationsResponse,
     GetAnnotationsResponse,
 )
-from app.models.comparison import UserAnnotation, AnnotationType
+from app.models.comparison import (
+    UserAnnotation,
+    AnnotationType,
+    ComparisonResult,
+    RetrievedChunk,
+    ComparisonSummary,
+)
 from app.services.comparison import (
     compare_spec_to_submittal,
     compare_document_to_submittal,
@@ -87,8 +91,6 @@ async def run_document_comparison(
         )
 
         # Convert results to ComparisonResult objects
-        from app.api.schemas.comparison import ComparisonSummary
-
         comparison_results = [ComparisonResult(**comp) for comp in result["comparisons"]]
 
         # Update job status to completed
