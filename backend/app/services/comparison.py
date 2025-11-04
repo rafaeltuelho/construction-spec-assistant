@@ -5,7 +5,7 @@ This module orchestrates the comparison workflow using retrievers and LangGraph 
 """
 
 import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
 from qdrant_client import QdrantClient
 from motor.motor_asyncio import AsyncIOMotorDatabase
