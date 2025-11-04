@@ -372,6 +372,8 @@ Compare a specification fact against a submittal document.
 
 Compare all extracted facts from a specification document against a submittal document.
 
+**Note**: This is an asynchronous operation that returns immediately with a job ID. Use the GET endpoint to check status and retrieve results.
+
 **Request**:
 ```json
 {
@@ -382,13 +384,60 @@ Compare all extracted facts from a specification document against a submittal do
 }
 ```
 
-**Response**:
+**Response** (202 Accepted - Immediate):
 ```json
 {
-  "comparison_id": "comp_doc_888",
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "pending",
   "spec_document_id": "doc_spec_123",
   "submittal_document_id": "doc_submittal_456",
   "total_facts": 67,
+  "message": "Document comparison job initiated with 67 facts to compare"
+}
+```
+
+**Status Codes**:
+- `202 Accepted`: Comparison job initiated
+- `400 Bad Request`: Invalid request
+- `404 Not Found`: Specification document not found or no facts extracted
+- `500 Internal Server Error`: Failed to initiate comparison
+
+---
+
+#### `GET /api/v1/comparison/compare-document/{job_id}`
+
+Get document comparison job status and results.
+
+**Path Parameters**:
+- `job_id`: Job identifier returned from POST endpoint
+
+**Query Parameters** (optional):
+- `limit`: Maximum number of comparisons to return (default: 100)
+- `offset`: Pagination offset (default: 0)
+- `verdict_filter`: Filter by verdict (`consistent`, `inconsistent`, `unclear`)
+
+**Response** (Processing):
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "spec_document_id": "doc_spec_123",
+  "submittal_document_id": "doc_submittal_456",
+  "total_facts": 67,
+  "completed_facts": 35,
+  "status": "processing",
+  "comparisons": [],
+  "created_at": "2025-10-22T18:40:00Z"
+}
+```
+
+**Response** (Completed):
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "spec_document_id": "doc_spec_123",
+  "submittal_document_id": "doc_submittal_456",
+  "total_facts": 67,
+  "completed_facts": 67,
   "status": "completed",
   "summary": {
     "consistent": 45,
@@ -439,20 +488,26 @@ Compare all extracted facts from a specification document against a submittal do
       "compared_at": "2025-10-22T18:40:01Z"
     }
   ],
-  "compared_at": "2025-10-22T18:40:00Z"
+  "created_at": "2025-10-22T18:40:00Z",
+  "completed_at": "2025-10-22T18:42:30Z"
 }
 ```
 
-**Query Parameters** (optional):
-- `limit`: Maximum number of comparisons to return (default: 100)
-- `offset`: Pagination offset (default: 0)
-- `verdict_filter`: Filter by verdict (`consistent`, `inconsistent`, `unclear`)
+**Status Values**:
+- `pending`: Job is queued but not started
+- `processing`: Job is currently running
+- `completed`: Job finished successfully
+- `failed`: Job failed with an error
+
+**Persistence**:
+- Results are stored in MongoDB (`document_comparison_results` collection)
+- Results persist across server restarts
+- Can be retrieved by job_id even after server restart
 
 **Status Codes**:
-- `200 OK`: Document comparison completed
-- `400 Bad Request`: Invalid request
-- `404 Not Found`: Specification or submittal document not found
-- `500 Internal Server Error`: Comparison failed
+- `200 OK`: Job status retrieved
+- `404 Not Found`: Job not found
+- `500 Internal Server Error`: Failed to retrieve status
 
 ---
 

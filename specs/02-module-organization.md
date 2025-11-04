@@ -151,6 +151,63 @@ class Fact(BaseModel):
 
 ---
 
+### 4.1. Comparison Models
+
+**Backend Location**: `backend/app/models/comparison.py`
+
+**Responsibilities**:
+- Define comparison result schema for MongoDB persistence
+- Store complete comparison results with metadata
+- Enable historical queries and cross-restart persistence
+
+**Key Classes**:
+```python
+class ComparisonSummary(BaseModel):
+    consistent: int
+    inconsistent: int
+    unclear: int
+
+class RetrievedChunk(BaseModel):
+    chunk_id: str
+    content: str
+    relevance_score: float
+
+class ComparisonResult(BaseModel):
+    comparison_id: str
+    spec_fact: Dict[str, Any]
+    submittal_document_id: str
+    verdict: str  # consistent, inconsistent, unclear
+    confidence: float
+    submittal_evidence: str
+    reasoning: str
+    retrieved_chunks: List[RetrievedChunk]
+    retrieval_strategy: str
+    compared_at: datetime
+
+class DocumentComparisonResult(BaseModel):
+    job_id: str  # Used as MongoDB _id
+    spec_document_id: str
+    submittal_document_id: str
+    total_facts: int
+    completed_facts: int
+    status: str  # pending, processing, completed, failed
+    summary: Optional[ComparisonSummary]
+    comparisons: List[ComparisonResult]
+    error: Optional[str]
+    created_at: datetime
+    completed_at: Optional[datetime]
+    retrieval_strategy: str
+    top_k: int
+```
+
+**Persistence Strategy**:
+- Results stored in MongoDB `document_comparison_results` collection
+- In-memory cache for active jobs (`_document_jobs` dict)
+- GET endpoint checks memory first, falls back to MongoDB
+- Enables retrieval after server restarts
+
+---
+
 ### 5. Fact Extraction Service (Lines 779-1152)
 
 **Notebook Location**: Cells with `FACT_EXTRACTOR_SYSTEM_PROMPT`, `extract_facts_from_chunk()`, `normalize_units()`, `dedupe_facts()`, `harvest_facts_for_doc()`
@@ -317,8 +374,9 @@ async def validate_node(state: ComparisonState) -> ComparisonState
 
 #### `db/mongodb.py`:
 - MongoDB connection management
-- CRUD operations for facts and documents
+- CRUD operations for facts, documents, and comparison results
 - Async operations
+- Persistence for job results
 
 #### `db/qdrant.py`:
 - Qdrant client setup
@@ -331,12 +389,23 @@ async def validate_node(state: ComparisonState) -> ComparisonState
 async def get_mongodb_client() -> AsyncIOMotorClient
 async def store_fact(fact: Fact) -> str
 async def get_facts_by_document(document_id: str) -> List[Fact]
+async def store_document_comparison_result(result: DocumentComparisonResult) -> str
+async def get_document_comparison_result(job_id: str) -> Optional[DocumentComparisonResult]
+async def get_document_comparison_results_by_spec(spec_document_id: str) -> List[DocumentComparisonResult]
+async def get_document_comparison_results_by_submittal(submittal_document_id: str) -> List[DocumentComparisonResult]
 
 # qdrant.py
 async def get_qdrant_client() -> QdrantClient
 async def index_chunks(chunks: List[SectionChunk], collection_name: str)
 async def search_vectors(query: str, collection_name: str, top_k: int) -> List[Document]
 ```
+
+**MongoDB Collections**:
+- `documents`: Document metadata and processing status
+- `sections`: Document sections (hierarchical structure)
+- `chunks`: Document chunks for retrieval
+- `facts`: Extracted facts (EAV schema)
+- `document_comparison_results`: Comparison job results (persistent storage)
 
 ---
 
