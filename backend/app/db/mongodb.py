@@ -367,6 +367,29 @@ async def get_document_comparison_result(
             return None
 
         result_dict["job_id"] = result_dict.pop("_id")
+
+        # Convert comparisons from dicts to ComparisonResult objects
+        if "comparisons" in result_dict and result_dict["comparisons"]:
+            from app.models.comparison import ComparisonResult
+
+            comparisons = []
+            for comp_dict in result_dict["comparisons"]:
+                # Ensure retrieved_chunks are properly structured
+                if "retrieved_chunks" in comp_dict:
+                    chunks = []
+                    for chunk in comp_dict["retrieved_chunks"]:
+                        if isinstance(chunk, dict):
+                            chunks.append(chunk)
+                        else:
+                            chunks.append(
+                                chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
+                            )
+                    comp_dict["retrieved_chunks"] = chunks
+
+                comparisons.append(ComparisonResult(**comp_dict))
+
+            result_dict["comparisons"] = comparisons
+
         return DocumentComparisonResult(**result_dict)
 
     except Exception as e:
