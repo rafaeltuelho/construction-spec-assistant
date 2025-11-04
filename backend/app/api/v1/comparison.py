@@ -79,6 +79,14 @@ async def run_document_comparison(
         # Update job status to processing
         _document_jobs[job_id].status = "processing"
 
+        # Define progress callback
+        async def update_progress(completed_facts: int, total_facts: int, percentage: int):
+            """Update job progress."""
+            _document_jobs[job_id].completed_facts = completed_facts
+            logger.info(
+                f"[PROGRESS] Job {job_id} progress: {completed_facts}/{total_facts} ({percentage}%)"
+            )
+
         # Perform document comparison
         result = await compare_document_to_submittal(
             spec_document_id=spec_document_id,
@@ -88,6 +96,7 @@ async def run_document_comparison(
             llm_client=llm_client,
             retrieval_strategy=retrieval_strategy,
             top_k=top_k,
+            progress_callback=update_progress,
         )
 
         # Convert results to ComparisonResult objects

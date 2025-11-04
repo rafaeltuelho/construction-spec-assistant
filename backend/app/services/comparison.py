@@ -262,6 +262,7 @@ async def compare_document_to_submittal(
     limit: int = 100,
     offset: int = 0,
     verdict_filter: str = None,
+    progress_callback: Optional[callable] = None,
 ) -> Dict[str, Any]:
     """
     Compare all facts from a specification document against a submittal document.
@@ -326,6 +327,8 @@ async def compare_document_to_submittal(
         # Compare each fact against the submittal
         all_comparisons = []
         summary = {"consistent": 0, "inconsistent": 0, "unclear": 0}
+        total_facts = len(facts)
+        completed_facts = 0
 
         for fact in facts:
             try:
@@ -355,6 +358,12 @@ async def compare_document_to_submittal(
 
                 all_comparisons.append(comparison_result)
 
+                # Update progress
+                completed_facts += 1
+                if progress_callback:
+                    percentage = int((completed_facts / total_facts) * 100)
+                    await progress_callback(completed_facts, total_facts, percentage)
+
             except Exception as e:
                 logger.error(f"Failed to compare fact {fact.id}: {str(e)}")
                 # Continue with other facts even if one fails
@@ -377,6 +386,12 @@ async def compare_document_to_submittal(
                         "compared_at": datetime.utcnow(),
                     }
                 )
+
+                # Update progress even on error
+                completed_facts += 1
+                if progress_callback:
+                    percentage = int((completed_facts / total_facts) * 100)
+                    await progress_callback(completed_facts, total_facts, percentage)
 
         # Apply verdict filter if specified
         if verdict_filter:
