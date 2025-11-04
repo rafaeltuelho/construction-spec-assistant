@@ -13,6 +13,8 @@ import type {
   ReportGenerationResponse,
   ReportStatusResponse,
   ErrorResponse,
+  Fact,
+  DocumentSection,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -90,6 +92,18 @@ export async function extractFacts(request: FactExtractionRequest): Promise<Fact
 export async function getFactExtractionStatus(jobId: string): Promise<FactExtractionStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/facts/extraction/${jobId}`);
   return handleResponse<FactExtractionStatusResponse>(response);
+}
+
+// Get individual fact by ID
+export async function getFactById(factId: string): Promise<Fact> {
+  const response = await fetch(`${API_BASE_URL}/facts/${factId}`);
+  return handleResponse<Fact>(response);
+}
+
+// Get individual section by ID
+export async function getSectionById(sectionId: string): Promise<DocumentSection> {
+  const response = await fetch(`${API_BASE_URL}/documents/sections/${sectionId}`);
+  return handleResponse<DocumentSection>(response);
 }
 
 // Comparison

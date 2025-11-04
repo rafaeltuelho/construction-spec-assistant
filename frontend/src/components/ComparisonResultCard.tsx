@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ComparisonResult, AnnotationType, Fact, DocumentSection } from '../types/api';
+import { getFactById, getSectionById } from '../services/api';
 
 interface ComparisonResultCardProps {
   result: ComparisonResult;
@@ -82,25 +83,18 @@ export function ComparisonResultCard({
     setContextError(null);
 
     try {
-      // Fetch fact details
-      const factResponse = await fetch(`/api/v1/facts/${result.spec_fact.fact_id}`);
-
-      if (!factResponse.ok) {
-        throw new Error(`Failed to fetch fact: ${factResponse.statusText}`);
-      }
-
-      const fact: Fact = await factResponse.json();
+      // Fetch fact details using centralized API service
+      const fact = await getFactById(result.spec_fact.fact_id);
       setFactData(fact);
 
       // Fetch section details using section_id from fact context
       if (fact.context?.section_id) {
-        const sectionResponse = await fetch(`/api/v1/documents/sections/${fact.context.section_id}`);
-
-        if (sectionResponse.ok) {
-          const section: DocumentSection = await sectionResponse.json();
+        try {
+          const section = await getSectionById(fact.context.section_id);
           setSectionData(section);
-        } else {
-          console.warn(`Failed to fetch section: ${sectionResponse.statusText}`);
+        } catch (sectionError) {
+          // Log warning but don't fail the entire operation if section fetch fails
+          console.warn('Failed to fetch section:', sectionError);
         }
       }
     } catch (error) {
