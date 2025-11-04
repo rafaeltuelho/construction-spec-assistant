@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 
 class SectionChunk(BaseModel):
     """Chunk of text from a document section."""
+
     chunk_id: str = Field(..., description="Unique chunk identifier")
     section_title: str = Field(..., description="Parent section title")
     section_number: Optional[str] = Field(None, description="Section number")
@@ -34,63 +35,60 @@ class SectionChunk(BaseModel):
 
 def _split_by_sentences(text: str) -> List[str]:
     """Split text into sentences."""
-    sentence_pattern = r'(?<=[.!?])\s+'
+    sentence_pattern = r"(?<=[.!?])\s+"
     sentences = re.split(sentence_pattern, text)
     return [s.strip() for s in sentences if s.strip()]
 
 
 def _chunk_text(
-    text: str,
-    max_tokens: int = 500,
-    overlap_tokens: int = 50,
-    model: str = "gpt-4"
+    text: str, max_tokens: int = 500, overlap_tokens: int = 50, model: str = "gpt-4"
 ) -> List[str]:
     """
     Split text into chunks respecting token limits and sentence boundaries.
-    
+
     Args:
         text: Text to chunk
         max_tokens: Maximum tokens per chunk
         overlap_tokens: Tokens to overlap between chunks
         model: Model for token counting
-    
+
     Returns:
         List of text chunks
     """
     if not text:
         return []
-    
+
     # Check if text fits in one chunk
     if count_tokens(text, model) <= max_tokens:
         return [text]
-    
+
     # Split by sentences
     sentences = _split_by_sentences(text)
-    
+
     chunks = []
     current_chunk = []
     current_tokens = 0
-    
+
     for sentence in sentences:
         sentence_tokens = count_tokens(sentence, model)
-        
+
         # If single sentence exceeds max_tokens, split by tokens
         if sentence_tokens > max_tokens:
             if current_chunk:
-                chunks.append(' '.join(current_chunk))
+                chunks.append(" ".join(current_chunk))
                 current_chunk = []
                 current_tokens = 0
-            
+
             # Split long sentence by tokens
             token_chunks = split_text_by_tokens(sentence, max_tokens, model, overlap_tokens)
             chunks.extend(token_chunks)
             continue
-        
+
         # Check if adding sentence would exceed limit
         if current_tokens + sentence_tokens > max_tokens:
             if current_chunk:
-                chunks.append(' '.join(current_chunk))
-            
+                chunks.append(" ".join(current_chunk))
+
             # Start new chunk with overlap
             if overlap_tokens > 0 and current_chunk:
                 overlap_sentences = []
@@ -107,14 +105,14 @@ def _chunk_text(
             else:
                 current_chunk = []
                 current_tokens = 0
-        
+
         current_chunk.append(sentence)
         current_tokens += sentence_tokens
-    
+
     # Add final chunk
     if current_chunk:
-        chunks.append(' '.join(current_chunk))
-    
+        chunks.append(" ".join(current_chunk))
+
     return chunks
 
 
@@ -125,28 +123,25 @@ def generate_chunk_id(section_title: str, chunk_index: int, content: str) -> str
 
 
 def chunk_section(
-    section: Section,
-    max_tokens: int = 500,
-    overlap_tokens: int = 50,
-    model: str = "gpt-4"
+    section: Section, max_tokens: int = 500, overlap_tokens: int = 50, model: str = "gpt-4"
 ) -> List[SectionChunk]:
     """
     Chunk a single section's content.
-    
+
     Args:
         section: Section to chunk
         max_tokens: Maximum tokens per chunk
         overlap_tokens: Tokens to overlap between chunks
         model: Model for token counting
-    
+
     Returns:
         List of section chunks
     """
     if not section.content:
         return []
-    
+
     text_chunks = _chunk_text(section.content, max_tokens, overlap_tokens, model)
-    
+
     section_chunks = []
     for idx, chunk_text in enumerate(text_chunks):
         chunk = SectionChunk(
@@ -157,45 +152,42 @@ def chunk_section(
             content=chunk_text,
             token_count=count_tokens(chunk_text, model),
             chunk_index=idx,
-            total_chunks=len(text_chunks)
+            total_chunks=len(text_chunks),
         )
         section_chunks.append(chunk)
-    
+
     return section_chunks
 
 
 def chunk_sections(
-    sections: List[Section],
-    max_tokens: int = 500,
-    overlap_tokens: int = 50,
-    model: str = "gpt-4"
+    sections: List[Section], max_tokens: int = 500, overlap_tokens: int = 50, model: str = "gpt-4"
 ) -> List[SectionChunk]:
     """
     Recursively chunk all sections and subsections.
-    
+
     Args:
         sections: List of sections to chunk
         max_tokens: Maximum tokens per chunk
         overlap_tokens: Tokens to overlap between chunks
         model: Model for token counting
-    
+
     Returns:
         List of all chunks from all sections
     """
     all_chunks = []
-    
+
     def _chunk_recursive(section: Section):
         # Chunk current section
         section_chunks = chunk_section(section, max_tokens, overlap_tokens, model)
         all_chunks.extend(section_chunks)
-        
+
         # Recursively chunk subsections
         for subsection in section.subsections:
             _chunk_recursive(subsection)
-    
+
     for section in sections:
         _chunk_recursive(section)
-    
+
     logger.info(f"Created {len(all_chunks)} chunks from {len(sections)} sections")
     return all_chunks
 
@@ -208,7 +200,7 @@ def get_chunk_statistics(chunks: List[SectionChunk]) -> dict:
             "total_tokens": 0,
             "avg_tokens": 0,
             "min_tokens": 0,
-            "max_tokens": 0
+            "max_tokens": 0,
         }
 
     token_counts = [chunk.token_count for chunk in chunks]
@@ -218,15 +210,12 @@ def get_chunk_statistics(chunks: List[SectionChunk]) -> dict:
         "total_tokens": sum(token_counts),
         "avg_tokens": sum(token_counts) / len(token_counts),
         "min_tokens": min(token_counts),
-        "max_tokens": max(token_counts)
+        "max_tokens": max(token_counts),
     }
 
 
 def simple_chunk_markdown(
-    markdown_text: str,
-    max_tokens: int = 500,
-    overlap_tokens: int = 50,
-    model: str = "gpt-4"
+    markdown_text: str, max_tokens: int = 500, overlap_tokens: int = 50, model: str = "gpt-4"
 ) -> List[SectionChunk]:
     """
     Simple chunking for non-CSI documents (submittals, product descriptions, drawings).
@@ -254,7 +243,7 @@ def simple_chunk_markdown(
     logger.info(f"Simple chunking markdown text ({count_tokens(markdown_text, model)} tokens)")
 
     # Split by paragraphs first (double newlines)
-    paragraphs = [p.strip() for p in markdown_text.split('\n\n') if p.strip()]
+    paragraphs = [p.strip() for p in markdown_text.split("\n\n") if p.strip()]
 
     # Combine paragraphs into chunks respecting token limits
     chunks = []
@@ -268,7 +257,7 @@ def simple_chunk_markdown(
         if para_tokens > max_tokens:
             if current_chunk_text:
                 # Save current chunk
-                chunks.append('\n\n'.join(current_chunk_text))
+                chunks.append("\n\n".join(current_chunk_text))
                 current_chunk_text = []
                 current_tokens = 0
 
@@ -280,7 +269,7 @@ def simple_chunk_markdown(
         # Check if adding paragraph would exceed limit
         if current_tokens + para_tokens > max_tokens:
             if current_chunk_text:
-                chunks.append('\n\n'.join(current_chunk_text))
+                chunks.append("\n\n".join(current_chunk_text))
 
             # Start new chunk with overlap
             if overlap_tokens > 0 and current_chunk_text:
@@ -304,24 +293,25 @@ def simple_chunk_markdown(
 
     # Add remaining text
     if current_chunk_text:
-        chunks.append('\n\n'.join(current_chunk_text))
+        chunks.append("\n\n".join(current_chunk_text))
 
     # Convert to SectionChunk objects
     section_chunks = []
     for idx, chunk_text in enumerate(chunks):
         chunk_id = hashlib.md5(f"{chunk_text}_{idx}".encode()).hexdigest()[:12]
 
-        section_chunks.append(SectionChunk(
-            chunk_id=chunk_id,
-            section_title="Document Content",  # Generic title for non-CSI docs
-            section_number=None,
-            section_level=0,  # Flat structure
-            content=chunk_text,
-            token_count=count_tokens(chunk_text, model),
-            chunk_index=idx,
-            total_chunks=len(chunks)
-        ))
+        section_chunks.append(
+            SectionChunk(
+                chunk_id=chunk_id,
+                section_title="Document Content",  # Generic title for non-CSI docs
+                section_number=None,
+                section_level=0,  # Flat structure
+                content=chunk_text,
+                token_count=count_tokens(chunk_text, model),
+                chunk_index=idx,
+                total_chunks=len(chunks),
+            )
+        )
 
     logger.info(f"Created {len(section_chunks)} simple chunks")
     return section_chunks
-

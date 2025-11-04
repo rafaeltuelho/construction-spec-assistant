@@ -12,12 +12,27 @@ This module provides REST API endpoints for document operations:
 import tempfile
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
+from fastapi import (
+    APIRouter,
+    UploadFile,
+    File,
+    Form,
+    HTTPException,
+    Depends,
+    Query,
+    BackgroundTasks,
+)
 from fastapi.responses import JSONResponse
 
 from app.dependencies import get_mongodb, get_qdrant
 from app.services.document_processing import process_document
-from app.db.mongodb import get_document, list_documents, delete_document
+from app.db.mongodb import (
+    get_document,
+    list_documents,
+    delete_document,
+    store_document,
+    update_document_status,
+)
 from app.db.qdrant import search_similar_chunks
 from app.models.document import (
     DocumentUploadRequest,
@@ -27,17 +42,62 @@ from app.models.document import (
     DocumentType,
     ChunkSearchRequest,
     ChunkSearchResponse,
+    Document,
+    DocumentMetadata,
+    ProcessingProgress,
 )
 from app.utils.logging import get_logger
 from app.utils.exceptions import NotFoundError, DocumentProcessingError
+import uuid
+from datetime import datetime, timedelta
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+async def process_document_background(
+    pdf_path: Path,
+    document_id: str,
+    mongodb,
+    qdrant,
+    document_type: DocumentType,
+    title: str,
+    use_ocr: bool,
+    max_chunk_tokens: int,
+    chunk_overlap_tokens: int,
+):
+    """Background task to process document asynchronously."""
+    try:
+        logger.info(f"[{document_id}] Starting background document processing")
+
+        # Process document
+        await process_document(
+            pdf_path=pdf_path,
+            mongodb=mongodb,
+            qdrant=qdrant,
+            document_type=document_type,
+            title=title,
+            use_ocr=use_ocr,
+            max_chunk_tokens=max_chunk_tokens,
+            chunk_overlap_tokens=chunk_overlap_tokens,
+            document_id=document_id,  # Pass existing document_id
+        )
+
+        logger.info(f"[{document_id}] Background document processing completed")
+
+    except Exception as e:
+        logger.error(f"[{document_id}] Background processing failed: {str(e)}")
+        await update_document_status(mongodb, document_id, DocumentStatus.FAILED, error=str(e))
+    finally:
+        # Clean up temp file
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+
 @router.post("/upload", response_model=DocumentResponse, status_code=202)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to upload"),
     document_type: str = Form(
         ...,
@@ -96,7 +156,7 @@ async def upload_document(
     try:
         doc_type = DocumentType(document_type)
     except ValueError:
-        raise HTTPException(
+        raise HTTPException(  # noqa: B904
             status_code=400,
             detail=f"Invalid document_type. Must be one of: {', '.join([t.value for t in DocumentType])}",
         )
@@ -122,39 +182,69 @@ async def upload_document(
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
 
-        logger.info(f"Processing uploaded file: {file.filename} [type={doc_type.value}]")
+        # Generate document ID
+        document_id = str(uuid.uuid4())
+        doc_title = title or file.filename
 
-        # Process document
-        document = await process_document(
-            pdf_path=tmp_path,
-            mongodb=mongodb,
-            qdrant=qdrant,
+        # Create initial document record with pending status
+        metadata = DocumentMetadata(
             document_type=doc_type,
-            title=title or file.filename,
-            use_ocr=use_ocr,
-            max_chunk_tokens=max_chunk_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
+            filename=file.filename,
+            file_size=len(content),
+            mime_type="application/pdf",
         )
 
-        # Clean up temp file
-        tmp_path.unlink()
+        # Initialize progress tracking
+        progress = ProcessingProgress(
+            percentage=0,
+            current_stage="pending",
+            stages=["parsing", "sectionizing", "chunking", "indexing"],
+            estimated_completion=datetime.utcnow() + timedelta(seconds=int(file_size_mb * 2) + 10),
+        )
 
-        # Estimate processing duration based on file size and document type
-        # Rough estimate: 1-2 seconds per MB for parsing + OCR
-        estimated_duration = int(file_size_mb * 2) + 10  # Add 10s buffer
+        document = Document(
+            document_id=document_id,
+            title=doc_title,
+            status=DocumentStatus.PENDING,
+            metadata=metadata,
+            progress=progress,
+        )
 
-        # Create response with processing job ID
+        # Store initial document in MongoDB
+        await store_document(mongodb, document)
+
+        logger.info(f"Created document record: {document_id} [type={doc_type.value}]")
+
+        # Estimate processing duration based on file size
+        estimated_duration = int(file_size_mb * 2) + 10  # 2 seconds per MB + 10s buffer
+
+        # Schedule background processing
+        background_tasks.add_task(
+            process_document_background,
+            tmp_path,
+            document_id,
+            mongodb,
+            qdrant,
+            doc_type,
+            doc_title,
+            use_ocr,
+            max_chunk_tokens,
+            chunk_overlap_tokens,
+        )
+
+        logger.info(f"Scheduled background processing for document: {document_id}")
+
+        # Return 202 response immediately
         response = DocumentResponse(**document.model_dump())
-        response.processing_job_id = document.document_id  # Use document_id as job_id
+        response.processing_job_id = document_id  # Use document_id as job_id
         response.estimated_duration_seconds = estimated_duration
 
         return response
 
-    except DocumentProcessingError as e:
-        logger.error(f"Document processing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

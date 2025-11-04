@@ -10,7 +10,14 @@ import uuid
 from typing import List, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
 from fastembed import TextEmbedding
 
 from app.models.document import DocumentChunk, ChunkSearchResult
@@ -51,35 +58,33 @@ async def generate_embeddings(texts: List[str]) -> List[List[float]]:
 
 
 async def ensure_collection_exists(
-    client: QdrantClient,
-    collection_name: str = "document_chunks",
-    vector_size: int = 384
+    client: QdrantClient, collection_name: str = "document_chunks", vector_size: int = 384
 ) -> bool:
     """
     Ensure Qdrant collection exists.
-    
+
     Args:
         client: Qdrant client
         collection_name: Collection name
         vector_size: Vector dimension (384 for bge-small-en-v1.5)
-    
+
     Returns:
         True if collection exists or was created
     """
     try:
         collections = client.get_collections().collections
         collection_names = [c.name for c in collections]
-        
+
         if collection_name not in collection_names:
             logger.info(f"Creating collection: {collection_name}")
             client.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
             logger.info(f"Collection created: {collection_name}")
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to ensure collection exists: {str(e)}")
         raise DatabaseError(f"Failed to ensure collection exists: {str(e)}")
@@ -99,14 +104,12 @@ def _chunk_id_to_uuid(chunk_id: str) -> str:
         Valid UUID string
     """
     # Use UUID5 with a custom namespace to generate deterministic UUIDs
-    namespace = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # DNS namespace
+    namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # DNS namespace
     return str(uuid.uuid5(namespace, chunk_id))
 
 
 async def index_chunks_in_qdrant(
-    client: QdrantClient,
-    chunks: List[DocumentChunk],
-    collection_name: str = "document_chunks"
+    client: QdrantClient, chunks: List[DocumentChunk], collection_name: str = "document_chunks"
 ) -> int:
     """
     Index document chunks in Qdrant.
@@ -152,8 +155,8 @@ async def index_chunks_in_qdrant(
                     "content": chunk.content,
                     "token_count": chunk.token_count,
                     "chunk_index": chunk.chunk_index,
-                    "total_chunks": chunk.total_chunks
-                }
+                    "total_chunks": chunk.total_chunks,
+                },
             )
             points.append(point)
 
@@ -174,11 +177,11 @@ async def search_similar_chunks(
     top_k: int = 10,
     document_id: Optional[str] = None,
     min_score: float = 0.0,
-    collection_name: str = "document_chunks"
+    collection_name: str = "document_chunks",
 ) -> List[ChunkSearchResult]:
     """
     Search for similar chunks using vector similarity.
-    
+
     Args:
         client: Qdrant client
         query: Search query
@@ -186,7 +189,7 @@ async def search_similar_chunks(
         document_id: Filter by document ID
         min_score: Minimum similarity score
         collection_name: Collection name
-    
+
     Returns:
         List of search results
     """
@@ -194,23 +197,23 @@ async def search_similar_chunks(
         # Generate query embedding
         query_embeddings = await generate_embeddings([query])
         query_vector = query_embeddings[0]
-        
+
         # Build filter
         query_filter = None
         if document_id:
             query_filter = Filter(
                 must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
             )
-        
+
         # Search
         search_results = client.search(
             collection_name=collection_name,
             query_vector=query_vector,
             limit=top_k,
             query_filter=query_filter,
-            score_threshold=min_score
+            score_threshold=min_score,
         )
-        
+
         # Convert to ChunkSearchResult
         results = []
         for result in search_results:
@@ -224,32 +227,30 @@ async def search_similar_chunks(
                     "section_number": result.payload.get("section_number"),
                     "section_level": result.payload.get("section_level"),
                     "chunk_index": result.payload.get("chunk_index"),
-                    "total_chunks": result.payload.get("total_chunks")
-                }
+                    "total_chunks": result.payload.get("total_chunks"),
+                },
             )
             results.append(chunk_result)
-        
+
         logger.info(f"Found {len(results)} similar chunks for query")
         return results
-        
+
     except Exception as e:
         logger.error(f"Failed to search chunks: {str(e)}")
         raise DatabaseError(f"Failed to search chunks: {str(e)}")
 
 
 async def delete_document_chunks(
-    client: QdrantClient,
-    document_id: str,
-    collection_name: str = "document_chunks"
+    client: QdrantClient, document_id: str, collection_name: str = "document_chunks"
 ) -> bool:
     """
     Delete all chunks for a document from Qdrant.
-    
+
     Args:
         client: Qdrant client
         document_id: Document ID
         collection_name: Collection name
-    
+
     Returns:
         True if deleted
     """
@@ -258,18 +259,20 @@ async def delete_document_chunks(
             collection_name=collection_name,
             points_selector=Filter(
                 must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
-            )
+            ),
         )
-        
+
         logger.info(f"Deleted chunks for document: {document_id}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to delete chunks: {str(e)}")
         raise DatabaseError(f"Failed to delete chunks: {str(e)}")
 
 
-def get_collection_info(client: QdrantClient, collection_name: str = "document_chunks") -> Dict[str, Any]:
+def get_collection_info(
+    client: QdrantClient, collection_name: str = "document_chunks"
+) -> Dict[str, Any]:
     """Get collection information."""
     try:
         info = client.get_collection(collection_name=collection_name)
@@ -277,9 +280,8 @@ def get_collection_info(client: QdrantClient, collection_name: str = "document_c
             "name": collection_name,
             "vectors_count": info.vectors_count,
             "points_count": info.points_count,
-            "status": info.status
+            "status": info.status,
         }
     except Exception as e:
         logger.error(f"Failed to get collection info: {str(e)}")
         return {}
-

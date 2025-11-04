@@ -11,7 +11,7 @@ from app.config import settings
 from app.dependencies import (
     get_mongodb_client_instance,
     get_qdrant_client_instance,
-    get_openai_client_instance
+    get_openai_client_instance,
 )
 from app.utils.logging import get_logger
 
@@ -42,7 +42,7 @@ async def health_check() -> HealthCheckResponse:
     # Check MongoDB (optional service)
     if mongodb_client is not None:
         try:
-            await mongodb_client.admin.command('ping')
+            await mongodb_client.admin.command("ping")
             services["mongodb"] = "connected"
             logger.debug("MongoDB health check: connected")
         except Exception as e:
@@ -81,9 +81,7 @@ async def health_check() -> HealthCheckResponse:
         # Don't mark as unhealthy - OpenAI might not be required for all operations
 
     return HealthCheckResponse(
-        status=overall_status,
-        version=settings.app_version,
-        services=services
+        status=overall_status, version=settings.app_version, services=services
     )
 
 
@@ -91,7 +89,7 @@ async def health_check() -> HealthCheckResponse:
 async def readiness_check() -> dict:
     """
     Kubernetes readiness probe endpoint.
-    
+
     Returns:
         Simple ready status
     """
@@ -102,9 +100,8 @@ async def readiness_check() -> dict:
 async def liveness_check() -> dict:
     """
     Kubernetes liveness probe endpoint.
-    
+
     Returns:
         Simple alive status
     """
     return {"status": "alive"}
-

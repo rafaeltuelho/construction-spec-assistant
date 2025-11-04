@@ -21,23 +21,26 @@ logger = get_logger(__name__)
 
 class Section(BaseModel):
     """Recursive section model for hierarchical document structure."""
+
     title: str = Field(..., description="Section title")
     level: int = Field(..., ge=1, le=5, description="Section level (1-5)")
     content: str = Field(default="", description="Section content (text only)")
-    subsections: List['Section'] = Field(default_factory=list, description="Child sections")
-    section_number: Optional[str] = Field(None, description="Section number (e.g., '1.1', 'A', '1')")
-    
+    subsections: List["Section"] = Field(default_factory=list, description="Child sections")
+    section_number: Optional[str] = Field(
+        None, description="Section number (e.g., '1.1', 'A', '1')"
+    )
+
     class Config:
         arbitrary_types_allowed = True
 
 
 # CSI Format Regex Patterns (in order of precedence)
 CSI_PATTERNS = [
-    (1, re.compile(r'^PART\s+([IVX\d]+)\s*[-:]\s*(.+)$', re.IGNORECASE)),
-    (2, re.compile(r'^(\d+(?:\.\d+)+)\s+(.+)$')),
-    (3, re.compile(r'^([A-Z])[\.)]\s+(.+)$')),
-    (4, re.compile(r'^(\d+)[\.)]\s+(.+)$')),
-    (5, re.compile(r'^([a-z])[\.)]\s+(.+)$')),
+    (1, re.compile(r"^PART\s+([IVX\d]+)\s*[-:]\s*(.+)$", re.IGNORECASE)),
+    (2, re.compile(r"^(\d+(?:\.\d+)+)\s+(.+)$")),
+    (3, re.compile(r"^([A-Z])[\.)]\s+(.+)$")),
+    (4, re.compile(r"^(\d+)[\.)]\s+(.+)$")),
+    (5, re.compile(r"^([a-z])[\.)]\s+(.+)$")),
 ]
 
 
@@ -56,46 +59,42 @@ def _build_hierarchy(lines: List[str]) -> List[Section]:
     root_sections: List[Section] = []
     section_stack: List[tuple[int, Section]] = []
     current_content: List[str] = []
-    
+
     for line in lines:
         parsed = _parse_line(line)
-        
+
         if parsed:
             level, section_number, title = parsed
-            
+
             if section_stack:
                 _, prev_section = section_stack[-1]
-                prev_section.content = '\n'.join(current_content).strip()
+                prev_section.content = "\n".join(current_content).strip()
                 current_content = []
             elif current_content:
                 current_content = []
-            
+
             new_section = Section(
-                title=title,
-                level=level,
-                section_number=section_number,
-                content="",
-                subsections=[]
+                title=title, level=level, section_number=section_number, content="", subsections=[]
             )
-            
+
             while section_stack and section_stack[-1][0] >= level:
                 section_stack.pop()
-            
+
             if section_stack:
                 _, parent_section = section_stack[-1]
                 parent_section.subsections.append(new_section)
             else:
                 root_sections.append(new_section)
-            
+
             section_stack.append((level, new_section))
         else:
             if line.strip():
                 current_content.append(line)
-    
+
     if section_stack and current_content:
         _, last_section = section_stack[-1]
-        last_section.content = '\n'.join(current_content).strip()
-    
+        last_section.content = "\n".join(current_content).strip()
+
     return root_sections
 
 
@@ -104,8 +103,8 @@ def sectionize_markdown(markdown_content: str) -> List[Section]:
     if not markdown_content:
         logger.warning("Empty markdown content provided")
         return []
-    
-    lines = markdown_content.split('\n')
+
+    lines = markdown_content.split("\n")
     sections = _build_hierarchy(lines)
     logger.info(f"Parsed {len(sections)} top-level sections")
     return sections
@@ -114,15 +113,15 @@ def sectionize_markdown(markdown_content: str) -> List[Section]:
 def flatten_sections(sections: List[Section]) -> List[Section]:
     """Flatten hierarchical sections into a flat list."""
     flat_list: List[Section] = []
-    
+
     def _flatten(section: Section):
         flat_list.append(section)
         for subsection in section.subsections:
             _flatten(subsection)
-    
+
     for section in sections:
         _flatten(section)
-    
+
     return flat_list
 
 
@@ -137,6 +136,7 @@ def get_section_path(section: Section) -> str:
 
 def validate_sections(sections: List[Section]) -> bool:
     """Validate section hierarchy."""
+
     def _validate_level(section: Section, expected_parent_level: int) -> bool:
         if section.level <= expected_parent_level:
             logger.warning(f"Invalid level {section.level} for section '{section.title}'")
@@ -145,7 +145,7 @@ def validate_sections(sections: List[Section]) -> bool:
             if not _validate_level(subsection, section.level):
                 return False
         return True
-    
+
     for section in sections:
         if not _validate_level(section, 0):
             return False
@@ -172,4 +172,3 @@ def count_sections(sections: List[Section]) -> dict:
 
     # Convert integer keys to strings for MongoDB compatibility
     return {str(k): v for k, v in counts.items()}
-
