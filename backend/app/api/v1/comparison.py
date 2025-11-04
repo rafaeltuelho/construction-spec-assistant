@@ -18,7 +18,6 @@ from app.api.schemas.comparison import (
     CompareRequest,
     ComparisonResult,
     CompareDocumentRequest,
-    DocumentComparisonResult,
     DocumentComparisonResponse,
     DocumentComparisonStatus,
     BatchCompareRequest,
@@ -95,8 +94,29 @@ async def run_document_comparison(
         _document_jobs[job_id].comparisons = comparison_results
         _document_jobs[job_id].completed_at = datetime.utcnow()
 
+        # Persist to MongoDB
+        from app.db.mongodb import store_document_comparison_result
+        from app.models.comparison import DocumentComparisonResult
+
+        comparison_result_model = DocumentComparisonResult(
+            job_id=job_id,
+            spec_document_id=spec_document_id,
+            submittal_document_id=submittal_document_id,
+            total_facts=_document_jobs[job_id].total_facts,
+            completed_facts=len(comparison_results),
+            status="completed",
+            summary=_document_jobs[job_id].summary,
+            comparisons=comparison_results,
+            created_at=_document_jobs[job_id].created_at,
+            completed_at=_document_jobs[job_id].completed_at,
+            retrieval_strategy=retrieval_strategy,
+            top_k=top_k,
+        )
+
+        await store_document_comparison_result(db, comparison_result_model)
+
         logger.info(
-            f"Document comparison job completed: job_id={job_id}, "
+            f"Document comparison job completed and persisted: job_id={job_id}, "
             f"total_facts={_document_jobs[job_id].total_facts}, "
             f"completed={len(comparison_results)}"
         )
@@ -106,6 +126,32 @@ async def run_document_comparison(
         _document_jobs[job_id].status = "failed"
         _document_jobs[job_id].error = str(e)
         _document_jobs[job_id].completed_at = datetime.utcnow()
+
+        # Persist failed job to MongoDB
+        try:
+            from app.db.mongodb import store_document_comparison_result
+            from app.models.comparison import DocumentComparisonResult
+
+            comparison_result_model = DocumentComparisonResult(
+                job_id=job_id,
+                spec_document_id=spec_document_id,
+                submittal_document_id=submittal_document_id,
+                total_facts=_document_jobs[job_id].total_facts,
+                completed_facts=_document_jobs[job_id].completed_facts,
+                status="failed",
+                error=str(e),
+                created_at=_document_jobs[job_id].created_at,
+                completed_at=_document_jobs[job_id].completed_at,
+                retrieval_strategy=retrieval_strategy,
+                top_k=top_k,
+            )
+
+            await store_document_comparison_result(db, comparison_result_model)
+            logger.info(f"Failed job persisted to MongoDB: job_id={job_id}")
+        except Exception as persist_error:
+            logger.error(
+                f"Failed to persist failed job to MongoDB: job_id={job_id}, error={persist_error}"
+            )
 
 
 @router.post(
@@ -359,15 +405,19 @@ async def get_document_comparison_status(
     limit: int = 100,
     offset: int = 0,
     verdict_filter: str = None,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
 ) -> DocumentComparisonStatus:
     """
     Get document comparison job status and results.
+
+    Fetches from in-memory cache first, then falls back to MongoDB for persistence.
 
     Args:
         job_id: Job identifier
         limit: Maximum number of comparisons to return
         offset: Pagination offset
         verdict_filter: Optional filter by verdict
+        db: MongoDB database instance
 
     Returns:
         Document comparison status with results if completed
@@ -378,12 +428,39 @@ async def get_document_comparison_status(
     try:
         logger.info(f"Retrieving document comparison status: job_id={job_id}")
 
-        if job_id not in _document_jobs:
+        job = None
+
+        # Try in-memory cache first
+        if job_id in _document_jobs:
+            job = _document_jobs[job_id]
+            logger.debug(f"Job found in memory: job_id={job_id}")
+        else:
+            # Fall back to MongoDB for persistence across restarts
+            from app.db.mongodb import get_document_comparison_result
+
+            comparison_result = await get_document_comparison_result(db, job_id)
+
+            if comparison_result:
+                # Convert DocumentComparisonResult to DocumentComparisonStatus
+                job = DocumentComparisonStatus(
+                    job_id=comparison_result.job_id,
+                    spec_document_id=comparison_result.spec_document_id,
+                    submittal_document_id=comparison_result.submittal_document_id,
+                    total_facts=comparison_result.total_facts,
+                    completed_facts=comparison_result.completed_facts,
+                    status=comparison_result.status,
+                    summary=comparison_result.summary,
+                    comparisons=comparison_result.comparisons,
+                    error=comparison_result.error,
+                    created_at=comparison_result.created_at,
+                    completed_at=comparison_result.completed_at,
+                )
+                logger.debug(f"Job found in MongoDB: job_id={job_id}")
+
+        if not job:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Job not found: {job_id}"
             )
-
-        job = _document_jobs[job_id]
 
         # Apply filters and pagination if job is completed
         if job.status == "completed" and job.comparisons:

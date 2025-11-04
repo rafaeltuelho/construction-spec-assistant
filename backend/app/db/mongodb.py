@@ -17,6 +17,7 @@ from app.models.document import (
     ProcessingStats,
 )
 from app.models.fact import Fact
+from app.models.comparison import DocumentComparisonResult
 from app.utils.logging import get_logger
 from app.utils.exceptions import DatabaseError, NotFoundError
 
@@ -305,3 +306,153 @@ async def get_facts_by_document(
     except Exception as e:
         logger.error(f"Failed to retrieve facts: {str(e)}")
         raise DatabaseError(f"Failed to retrieve facts: {str(e)}")
+
+
+async def store_document_comparison_result(
+    db: AsyncIOMotorDatabase, comparison_result: DocumentComparisonResult
+) -> str:
+    """
+    Store a document comparison result in MongoDB.
+
+    Args:
+        db: MongoDB database instance
+        comparison_result: Document comparison result to store
+
+    Returns:
+        Job ID
+
+    Raises:
+        DatabaseError: If storage fails
+    """
+    try:
+        result_dict = comparison_result.model_dump()
+        result_dict["_id"] = comparison_result.job_id
+
+        # Upsert to handle updates to existing jobs
+        await db.document_comparison_results.replace_one(
+            {"_id": comparison_result.job_id}, result_dict, upsert=True
+        )
+
+        logger.info(
+            f"Stored document comparison result: job_id={comparison_result.job_id}, "
+            f"status={comparison_result.status}"
+        )
+        return comparison_result.job_id
+
+    except Exception as e:
+        logger.error(f"Failed to store document comparison result: {str(e)}")
+        raise DatabaseError(f"Failed to store document comparison result: {str(e)}")
+
+
+async def get_document_comparison_result(
+    db: AsyncIOMotorDatabase, job_id: str
+) -> Optional[DocumentComparisonResult]:
+    """
+    Retrieve a document comparison result by job ID.
+
+    Args:
+        db: MongoDB database instance
+        job_id: Job identifier
+
+    Returns:
+        DocumentComparisonResult or None if not found
+
+    Raises:
+        DatabaseError: If retrieval fails
+    """
+    try:
+        result_dict = await db.document_comparison_results.find_one({"_id": job_id})
+
+        if not result_dict:
+            return None
+
+        result_dict["job_id"] = result_dict.pop("_id")
+        return DocumentComparisonResult(**result_dict)
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve document comparison result: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve document comparison result: {str(e)}")
+
+
+async def get_document_comparison_results_by_spec(
+    db: AsyncIOMotorDatabase, spec_document_id: str, limit: int = 100, offset: int = 0
+) -> List[DocumentComparisonResult]:
+    """
+    Retrieve all comparison results for a specific specification document.
+
+    Args:
+        db: MongoDB database instance
+        spec_document_id: Specification document identifier
+        limit: Maximum results to return
+        offset: Pagination offset
+
+    Returns:
+        List of DocumentComparisonResult objects
+
+    Raises:
+        DatabaseError: If retrieval fails
+    """
+    try:
+        cursor = (
+            db.document_comparison_results.find({"spec_document_id": spec_document_id})
+            .sort("created_at", -1)
+            .skip(offset)
+            .limit(limit)
+        )
+        result_dicts = await cursor.to_list(length=limit)
+
+        results = []
+        for result_dict in result_dicts:
+            result_dict["job_id"] = result_dict.pop("_id")
+            results.append(DocumentComparisonResult(**result_dict))
+
+        logger.debug(
+            f"Retrieved {len(results)} comparison results for spec document {spec_document_id}"
+        )
+        return results
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve comparison results by spec: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve comparison results by spec: {str(e)}")
+
+
+async def get_document_comparison_results_by_submittal(
+    db: AsyncIOMotorDatabase, submittal_document_id: str, limit: int = 100, offset: int = 0
+) -> List[DocumentComparisonResult]:
+    """
+    Retrieve all comparison results for a specific submittal document.
+
+    Args:
+        db: MongoDB database instance
+        submittal_document_id: Submittal document identifier
+        limit: Maximum results to return
+        offset: Pagination offset
+
+    Returns:
+        List of DocumentComparisonResult objects
+
+    Raises:
+        DatabaseError: If retrieval fails
+    """
+    try:
+        cursor = (
+            db.document_comparison_results.find({"submittal_document_id": submittal_document_id})
+            .sort("created_at", -1)
+            .skip(offset)
+            .limit(limit)
+        )
+        result_dicts = await cursor.to_list(length=limit)
+
+        results = []
+        for result_dict in result_dicts:
+            result_dict["job_id"] = result_dict.pop("_id")
+            results.append(DocumentComparisonResult(**result_dict))
+
+        logger.debug(
+            f"Retrieved {len(results)} comparison results for submittal document {submittal_document_id}"
+        )
+        return results
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve comparison results by submittal: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve comparison results by submittal: {str(e)}")
