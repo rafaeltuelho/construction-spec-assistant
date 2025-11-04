@@ -456,3 +456,60 @@ async def get_document_comparison_results_by_submittal(
     except Exception as e:
         logger.error(f"Failed to retrieve comparison results by submittal: {str(e)}")
         raise DatabaseError(f"Failed to retrieve comparison results by submittal: {str(e)}")
+
+
+# Alias for compatibility
+async def get_comparison_result(
+    db: AsyncIOMotorDatabase, job_id: str
+) -> Optional[DocumentComparisonResult]:
+    """
+    Alias for get_document_comparison_result for compatibility.
+
+    Args:
+        db: MongoDB database instance
+        job_id: Job identifier
+
+    Returns:
+        Document comparison result or None if not found
+    """
+    return await get_document_comparison_result(db, job_id)
+
+
+async def update_comparison_annotations(
+    db: AsyncIOMotorDatabase, job_id: str, annotations: Dict[str, List[Any]]
+) -> None:
+    """
+    Update annotations for a comparison result.
+
+    Args:
+        db: MongoDB database instance
+        job_id: Job identifier
+        annotations: Annotations dictionary keyed by comparison_id
+
+    Raises:
+        DatabaseError: If update fails
+        NotFoundError: If comparison result not found
+    """
+    try:
+        # Convert UserAnnotation objects to dicts for MongoDB storage
+        annotations_dict = {}
+        for comparison_id, annotation_list in annotations.items():
+            annotations_dict[comparison_id] = [
+                ann.model_dump() if hasattr(ann, "model_dump") else ann for ann in annotation_list
+            ]
+
+        result = await db.document_comparison_results.update_one(
+            {"_id": job_id},
+            {"$set": {"annotations": annotations_dict, "updated_at": datetime.utcnow()}},
+        )
+
+        if result.matched_count == 0:
+            raise NotFoundError(f"Comparison result not found: {job_id}")
+
+        logger.info(f"Updated annotations for comparison result: {job_id}")
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update annotations: {str(e)}")
+        raise DatabaseError(f"Failed to update annotations: {str(e)}")

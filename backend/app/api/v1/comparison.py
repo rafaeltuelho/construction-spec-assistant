@@ -24,7 +24,11 @@ from app.api.schemas.comparison import (
     BatchComparisonResponse,
     BatchComparisonStatus,
     RetrievedChunk,
+    SaveAnnotationsRequest,
+    SaveAnnotationsResponse,
+    GetAnnotationsResponse,
 )
+from app.models.comparison import UserAnnotation, AnnotationType
 from app.services.comparison import (
     compare_spec_to_submittal,
     compare_document_to_submittal,
@@ -685,4 +689,144 @@ async def get_batch_results(batch_id: str) -> BatchComparisonStatus:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve batch results: {str(e)}",
+        )
+
+
+# User Annotations Endpoints
+
+
+@router.post("/{job_id}/annotations", response_model=SaveAnnotationsResponse)
+async def save_annotations(
+    job_id: str,
+    request: SaveAnnotationsRequest,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+) -> SaveAnnotationsResponse:
+    """
+    Save user annotations for comparison results.
+
+    This endpoint allows users to annotate comparison results with:
+    - disregard: Mark comparison as not applicable
+    - confirmed: Confirm the comparison verdict
+    - note: Add a custom note
+
+    Args:
+        job_id: Comparison job identifier
+        request: Annotations to save
+        db: MongoDB database instance
+
+    Returns:
+        Confirmation response with number of annotations saved
+
+    Raises:
+        HTTPException: If job not found or save fails
+    """
+    try:
+        logger.info(f"Saving annotations: job_id={job_id}, count={len(request.annotations)}")
+
+        # Get comparison result from MongoDB
+        from app.db.mongodb import get_comparison_result
+
+        comparison_result = await get_comparison_result(db, job_id)
+        if not comparison_result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Comparison job not found: {job_id}"
+            )
+
+        # Convert request annotations to UserAnnotation models
+        annotations_dict = comparison_result.annotations or {}
+
+        for ann_req in request.annotations:
+            # Create UserAnnotation
+            user_annotation = UserAnnotation(
+                comparison_id=ann_req.comparison_id,
+                annotation_type=ann_req.annotation_type,
+                note_text=ann_req.note_text,
+                annotated_at=datetime.utcnow(),
+            )
+
+            # Add to annotations dict (keyed by comparison_id)
+            if ann_req.comparison_id not in annotations_dict:
+                annotations_dict[ann_req.comparison_id] = []
+
+            # Replace existing annotation of same type or append
+            existing_annotations = annotations_dict[ann_req.comparison_id]
+            # Remove any existing annotation of the same type
+            existing_annotations = [
+                a for a in existing_annotations if a.annotation_type != ann_req.annotation_type
+            ]
+            existing_annotations.append(user_annotation)
+            annotations_dict[ann_req.comparison_id] = existing_annotations
+
+        # Update comparison result in MongoDB
+        from app.db.mongodb import update_comparison_annotations
+
+        await update_comparison_annotations(db, job_id, annotations_dict)
+
+        logger.info(f"Annotations saved successfully: job_id={job_id}")
+
+        return SaveAnnotationsResponse(
+            job_id=job_id,
+            annotations_saved=len(request.annotations),
+            message="Annotations saved successfully",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save annotations: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save annotations: {str(e)}",
+        )
+
+
+@router.get("/{job_id}/annotations", response_model=GetAnnotationsResponse)
+async def get_annotations(
+    job_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+) -> GetAnnotationsResponse:
+    """
+    Retrieve all annotations for a comparison job.
+
+    Args:
+        job_id: Comparison job identifier
+        db: MongoDB database instance
+
+    Returns:
+        All annotations for the job
+
+    Raises:
+        HTTPException: If job not found
+    """
+    try:
+        logger.info(f"Retrieving annotations: job_id={job_id}")
+
+        # Get comparison result from MongoDB
+        from app.db.mongodb import get_comparison_result
+
+        comparison_result = await get_comparison_result(db, job_id)
+        if not comparison_result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Comparison job not found: {job_id}"
+            )
+
+        # Flatten annotations dict to list
+        all_annotations = []
+        if comparison_result.annotations:
+            for comparison_id, annotations in comparison_result.annotations.items():
+                all_annotations.extend(annotations)
+
+        logger.info(f"Retrieved {len(all_annotations)} annotations for job_id={job_id}")
+
+        return GetAnnotationsResponse(
+            job_id=job_id, annotations=all_annotations, total_annotations=len(all_annotations)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve annotations: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve annotations: {str(e)}",
         )

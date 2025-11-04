@@ -7,10 +7,19 @@ Reference: specs/03-api-design.md (lines 198-309)
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from app.models.fact import Entity, Attribute, Value, Context
+
+
+class FactExtractionProgress(BaseModel):
+    """Progress information for fact extraction."""
+
+    percentage: int = Field(default=0, ge=0, le=100, description="Progress percentage (0-100)")
+    chunks_processed: int = Field(default=0, description="Number of chunks processed")
+    total_chunks: int = Field(default=0, description="Total number of chunks")
+    estimated_completion: Optional[datetime] = Field(None, description="Estimated completion time")
 
 
 class FactExtractionRequest(BaseModel):
@@ -60,6 +69,7 @@ class FactExtractionJobStatus(BaseModel):
         job_id: Job identifier
         document_id: Document identifier
         status: Job status (pending, processing, completed, failed)
+        progress: Progress information (when processing)
         started_at: Job start timestamp
         completed_at: Job completion timestamp
         facts_extracted: Number of facts extracted
@@ -70,6 +80,9 @@ class FactExtractionJobStatus(BaseModel):
     job_id: str = Field(..., description="Job identifier")
     document_id: str = Field(..., description="Document identifier")
     status: str = Field(..., description="Job status")
+    progress: Optional[FactExtractionProgress] = Field(
+        None, description="Progress information (when processing)"
+    )
     started_at: datetime = Field(..., description="Job start timestamp")
     completed_at: Optional[datetime] = Field(None, description="Job completion timestamp")
     facts_extracted: Optional[int] = Field(None, description="Number of facts extracted")

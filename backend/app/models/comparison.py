@@ -8,6 +8,42 @@ in MongoDB, enabling persistence across server restarts and historical queries.
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from enum import Enum
+
+
+class AnnotationType(str, Enum):
+    """User annotation types."""
+
+    DISREGARD = "disregard"
+    CONFIRMED = "confirmed"
+    NOTE = "note"
+
+
+class UserAnnotation(BaseModel):
+    """
+    User annotation for a comparison result.
+
+    Attributes:
+        comparison_id: Comparison identifier
+        annotation_type: Type of annotation (disregard, confirmed, note)
+        note_text: Custom note text (required when annotation_type='note')
+        annotated_by: User identifier (for future authentication)
+        annotated_at: Annotation timestamp
+    """
+
+    comparison_id: str = Field(..., description="Comparison identifier")
+    annotation_type: AnnotationType = Field(
+        ..., description="Annotation type: 'disregard', 'confirmed', 'note'"
+    )
+    note_text: Optional[str] = Field(
+        None, description="Custom note text (required when annotation_type='note')"
+    )
+    annotated_by: Optional[str] = Field(
+        None, description="User identifier (for future authentication)"
+    )
+    annotated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Annotation timestamp"
+    )
 
 
 class ComparisonSummary(BaseModel):
@@ -123,6 +159,9 @@ class DocumentComparisonResult(BaseModel):
     )
     retrieval_strategy: str = Field(default="ensemble", description="Retrieval strategy used")
     top_k: int = Field(default=5, description="Number of chunks retrieved per fact")
+    annotations: Dict[str, List[UserAnnotation]] = Field(
+        default_factory=dict, description="User annotations keyed by comparison_id"
+    )
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}

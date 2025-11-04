@@ -5,8 +5,9 @@ These schemas define request and response models for spec-to-submittal compariso
 """
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
+from app.models.comparison import AnnotationType, UserAnnotation
 
 
 class CompareRequest(BaseModel):
@@ -175,3 +176,52 @@ class DocumentComparisonResult(BaseModel):
     compared_at: datetime = Field(
         default_factory=datetime.utcnow, description="Timestamp of comparison"
     )
+
+
+# User Annotations Schemas
+
+
+class AnnotationRequest(BaseModel):
+    """Request schema for a single annotation."""
+
+    comparison_id: str = Field(..., description="Comparison identifier")
+    annotation_type: AnnotationType = Field(
+        ..., description="Annotation type: 'disregard', 'confirmed', 'note'"
+    )
+    note_text: Optional[str] = Field(
+        None, description="Custom note text (required when annotation_type='note')"
+    )
+
+    @field_validator("note_text")
+    @classmethod
+    def validate_note_text(cls, v, info):
+        """Validate that note_text is provided when annotation_type is 'note'."""
+        if info.data.get("annotation_type") == AnnotationType.NOTE and not v:
+            raise ValueError("note_text is required when annotation_type is 'note'")
+        return v
+
+
+class SaveAnnotationsRequest(BaseModel):
+    """Request schema for saving multiple annotations."""
+
+    annotations: List[AnnotationRequest] = Field(
+        ..., min_length=1, description="List of annotations to save"
+    )
+
+
+class SaveAnnotationsResponse(BaseModel):
+    """Response schema for saving annotations."""
+
+    job_id: str = Field(..., description="Job identifier")
+    annotations_saved: int = Field(..., description="Number of annotations saved")
+    message: str = Field(..., description="Status message")
+
+
+class GetAnnotationsResponse(BaseModel):
+    """Response schema for retrieving annotations."""
+
+    job_id: str = Field(..., description="Job identifier")
+    annotations: List[UserAnnotation] = Field(
+        default_factory=list, description="List of all annotations for this job"
+    )
+    total_annotations: int = Field(..., description="Total number of annotations")
