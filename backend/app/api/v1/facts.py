@@ -23,7 +23,13 @@ from app.api.schemas.fact import (
 from app.models.fact import Fact, FactExtractionJob
 from app.models.document import DocumentChunk
 from app.services.fact_extraction import harvest_facts_for_doc
-from app.db.mongodb import get_document_chunks, store_facts, get_facts_by_document, get_document
+from app.db.mongodb import (
+    get_document_chunks,
+    store_facts,
+    get_facts_by_document,
+    get_document,
+    get_fact_by_id,
+)
 from app.dependencies import get_mongodb, get_openai_client
 from app.utils.logging import get_logger
 from app.utils.exceptions import NotFoundError, FactExtractionError
@@ -225,6 +231,45 @@ async def get_extraction_job_status(job_id: str):
     except Exception as e:
         logger.error(f"Failed to get job status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get job status: {str(e)}")
+
+
+@router.get("/{fact_id}", response_model=FactResponse)
+async def get_fact(
+    fact_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+):
+    """
+    Get a single fact by ID.
+
+    Args:
+        fact_id: Fact identifier
+        db: MongoDB database
+
+    Returns:
+        Fact details including context information
+
+    Raises:
+        HTTPException: If fact not found or retrieval fails
+    """
+    try:
+        fact = await get_fact_by_id(db, fact_id)
+
+        return FactResponse(
+            fact_id=fact.id,
+            entity=fact.entity,
+            attribute=fact.attribute,
+            value=fact.value,
+            op=fact.op,
+            qualifiers=fact.qualifiers,
+            context=fact.context,
+        )
+
+    except NotFoundError as e:
+        logger.error(f"Fact not found: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to retrieve fact: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve fact: {str(e)}")
 
 
 @router.get("", response_model=FactQueryResponse)

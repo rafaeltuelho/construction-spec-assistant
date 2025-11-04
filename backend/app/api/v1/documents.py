@@ -32,12 +32,14 @@ from app.db.mongodb import (
     delete_document,
     store_document,
     update_document_status,
+    get_section_by_id,
 )
 from app.db.qdrant import search_similar_chunks
 from app.models.document import (
     DocumentUploadRequest,
     DocumentResponse,
     DocumentListResponse,
+    DocumentSection,
     DocumentStatus,
     DocumentType,
     ChunkSearchRequest,
@@ -245,6 +247,31 @@ async def upload_document(
         raise
     except Exception as e:
         logger.error(f"Unexpected error during upload: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/sections/{section_id}", response_model=DocumentSection)
+async def get_section(section_id: str, mongodb=Depends(get_mongodb)):
+    """
+    Get a document section by ID.
+
+    Args:
+        section_id: Section identifier
+        mongodb: MongoDB database instance
+
+    Returns:
+        Section details including title and content
+
+    Raises:
+        HTTPException: If section not found or retrieval fails
+    """
+    try:
+        section = await get_section_by_id(mongodb, section_id)
+        return section
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Section not found")
+    except Exception as e:
+        logger.error(f"Failed to retrieve section: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -308,6 +308,70 @@ async def get_facts_by_document(
         raise DatabaseError(f"Failed to retrieve facts: {str(e)}")
 
 
+async def get_fact_by_id(db: AsyncIOMotorDatabase, fact_id: str) -> Fact:
+    """
+    Retrieve a single fact by ID.
+
+    Args:
+        db: MongoDB database instance
+        fact_id: Fact identifier
+
+    Returns:
+        Fact object
+
+    Raises:
+        NotFoundError: If fact not found
+        DatabaseError: If retrieval fails
+    """
+    try:
+        fact_dict = await db.facts.find_one({"id": fact_id})
+
+        if not fact_dict:
+            raise NotFoundError(f"Fact not found: {fact_id}")
+
+        fact = Fact(**fact_dict)
+        logger.debug(f"Retrieved fact: {fact_id}")
+        return fact
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve fact: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve fact: {str(e)}")
+
+
+async def get_section_by_id(db: AsyncIOMotorDatabase, section_id: str) -> DocumentSection:
+    """
+    Retrieve a single section by ID.
+
+    Args:
+        db: MongoDB database instance
+        section_id: Section identifier
+
+    Returns:
+        DocumentSection object
+
+    Raises:
+        NotFoundError: If section not found
+        DatabaseError: If retrieval fails
+    """
+    try:
+        section_dict = await db.sections.find_one({"section_id": section_id})
+
+        if not section_dict:
+            raise NotFoundError(f"Section not found: {section_id}")
+
+        section = DocumentSection(**section_dict)
+        logger.debug(f"Retrieved section: {section_id}")
+        return section
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve section: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve section: {str(e)}")
+
+
 async def store_document_comparison_result(
     db: AsyncIOMotorDatabase, comparison_result: DocumentComparisonResult
 ) -> str:

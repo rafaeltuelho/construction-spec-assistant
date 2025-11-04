@@ -333,7 +333,9 @@ async def compare_document_to_submittal(
         for fact in facts:
             try:
                 # Convert Fact model to dict for comparison
+                # Include fact_id for frontend to fetch additional context
                 spec_fact = {
+                    "fact_id": fact.id,  # Add fact_id for context retrieval
                     "entity": fact.entity.model_dump(),
                     "attribute": fact.attribute.model_dump(),
                     "value": fact.value.model_dump(),
