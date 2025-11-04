@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { DocumentUpload } from '../components/DocumentUpload';
 import { ProcessingStatus } from '../components/ProcessingStatus';
-import { uploadDocument, extractFacts, compareDocuments } from '../services/api';
-import type { DocumentType } from '../types/api';
+import { uploadDocument, extractFacts, compareDocuments, getComparisonStatus } from '../services/api';
+import type { DocumentType, ComparisonSummary } from '../types/api';
 
 interface UploadedDocument {
   documentId: string;
@@ -24,6 +24,8 @@ export function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [comparisonJobId, setComparisonJobId] = useState<string | null>(null);
   const [isComparing, setIsComparing] = useState(false);
+  const [comparisonSummary, setComparisonSummary] = useState<ComparisonSummary | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
 
   const handleUpload = async (type: 'spec' | 'submittal', file: File, documentType: DocumentType) => {
     setError(null);
@@ -106,11 +108,30 @@ export function UploadPage() {
     }
   };
 
-  const handleComparisonComplete = () => {
+  const handleComparisonComplete = async () => {
     setIsComparing(false);
-    // Navigate to results page
+
+    // Fetch comparison summary
     if (comparisonJobId) {
-      window.location.href = `/results/${comparisonJobId}`;
+      try {
+        const status = await getComparisonStatus(comparisonJobId);
+        if (status.summary) {
+          setComparisonSummary(status.summary);
+          setShowSummary(true);
+
+          // Auto-navigate after 5 seconds
+          setTimeout(() => {
+            window.location.href = `/results/${comparisonJobId}`;
+          }, 5000);
+        } else {
+          // Navigate immediately if no summary
+          window.location.href = `/results/${comparisonJobId}`;
+        }
+      } catch (err) {
+        console.error('Failed to fetch comparison summary:', err);
+        // Navigate anyway
+        window.location.href = `/results/${comparisonJobId}`;
+      }
     }
   };
 
@@ -285,6 +306,48 @@ export function UploadPage() {
                 onComplete={handleComparisonComplete}
                 onError={(err) => setError(err)}
               />
+            </div>
+          )}
+
+          {/* Comparison Summary */}
+          {showSummary && comparisonSummary && (
+            <div className="mt-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg p-6 shadow-lg">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Comparison Complete! 🎉</h3>
+                <span className="text-sm text-gray-600">Redirecting in 5 seconds...</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div className="text-3xl font-bold text-green-600">
+                    {comparisonSummary.consistent}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">Consistent</div>
+                </div>
+
+                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div className="text-3xl font-bold text-red-600">
+                    {comparisonSummary.inconsistent}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">Inconsistent</div>
+                </div>
+
+                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div className="text-3xl font-bold text-yellow-600">
+                    {comparisonSummary.unclear}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">Unclear</div>
+                </div>
+              </div>
+
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => window.location.href = `/results/${comparisonJobId}`}
+                  className="btn-primary"
+                >
+                  View Detailed Results Now
+                </button>
+              </div>
             </div>
           )}
         </div>
