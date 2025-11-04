@@ -1,0 +1,202 @@
+// API Types for Construction Spec Assistant
+
+export type DocumentType = 'specification' | 'submittal' | 'product_description';
+
+export type DocumentStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export type Verdict = 'consistent' | 'inconsistent' | 'unclear';
+
+export type AnnotationType = 'disregard' | 'confirmed' | 'note';
+
+// Document Upload
+export interface DocumentUploadRequest {
+  file: File;
+  document_type: DocumentType;
+  use_ocr?: boolean;
+  project_id?: string;
+}
+
+export interface DocumentUploadResponse {
+  document_id: string;
+  filename: string;
+  document_type: DocumentType;
+  status: DocumentStatus;
+  created_at: string;
+  processing_job_id: string;
+  estimated_duration_seconds?: number;
+}
+
+// Document Status
+export interface DocumentProgress {
+  percentage: number;
+  current_stage: string;
+  stages: string[];
+}
+
+export interface DocumentMetadata {
+  page_count: number;
+  section_count: number;
+  chunk_count: number;
+  token_count: number;
+}
+
+export interface DocumentStatusResponse {
+  document_id: string;
+  filename: string;
+  document_type: DocumentType;
+  status: DocumentStatus;
+  progress?: DocumentProgress;
+  created_at: string;
+  completed_at?: string;
+  metadata?: DocumentMetadata;
+}
+
+// Fact Extraction
+export interface FactExtractionRequest {
+  document_id: string;
+  llm_model?: string;
+  deduplicate?: boolean;
+}
+
+export interface FactExtractionResponse {
+  document_id: string;
+  extraction_job_id: string;
+  status: JobStatus;
+  started_at: string;
+}
+
+export interface FactExtractionProgress {
+  percentage: number;
+  chunks_processed: number;
+  total_chunks: number;
+}
+
+export interface FactExtractionStatusResponse {
+  job_id: string;
+  document_id: string;
+  status: JobStatus;
+  progress?: FactExtractionProgress;
+  started_at: string;
+  completed_at?: string;
+  facts_extracted?: number;
+  facts_deduplicated?: number;
+  error?: string;
+}
+
+// Comparison
+export interface ComparisonRequest {
+  spec_document_id: string;
+  submittal_document_id: string;
+  retrieval_strategy?: string;
+  top_k?: number;
+}
+
+export interface ComparisonResponse {
+  job_id: string;
+  status: JobStatus;
+  spec_document_id: string;
+  submittal_document_id: string;
+  total_facts: number;
+  message: string;
+}
+
+export interface RetrievedChunk {
+  chunk_id: string;
+  content: string;
+  relevance_score: number;
+}
+
+export interface ComparisonResult {
+  comparison_id: string;
+  spec_fact: Record<string, any>;
+  submittal_document_id: string;
+  verdict: Verdict;
+  confidence: number;
+  submittal_evidence: string;
+  reasoning: string;
+  retrieved_chunks: RetrievedChunk[];
+  retrieval_strategy: string;
+  compared_at: string;
+}
+
+export interface ComparisonSummary {
+  consistent: number;
+  inconsistent: number;
+  unclear: number;
+}
+
+export interface ComparisonStatusResponse {
+  job_id: string;
+  spec_document_id: string;
+  submittal_document_id: string;
+  total_facts: number;
+  completed_facts: number;
+  status: JobStatus;
+  summary?: ComparisonSummary;
+  comparisons: ComparisonResult[];
+  created_at: string;
+  completed_at?: string;
+  error?: string;
+}
+
+// User Annotations
+export interface UserAnnotation {
+  comparison_id: string;
+  annotation_type: AnnotationType;
+  note_text?: string;
+}
+
+export interface SaveAnnotationsRequest {
+  annotations: UserAnnotation[];
+}
+
+export interface SaveAnnotationsResponse {
+  job_id: string;
+  annotations_saved: number;
+  message: string;
+}
+
+// Report Generation (Placeholder)
+export interface ReportGenerationRequest {
+  format: 'pdf' | 'docx';
+  include_sections: {
+    summary: boolean;
+    consistent_items: boolean;
+    inconsistent_items: boolean;
+    unclear_items: boolean;
+    annotations: boolean;
+  };
+  report_title?: string;
+  project_name?: string;
+}
+
+export interface ReportGenerationResponse {
+  report_job_id: string;
+  status: JobStatus;
+  message: string;
+}
+
+export interface ReportStatusResponse {
+  report_job_id: string;
+  status: JobStatus;
+  progress?: number;
+  download_url?: string;
+  filename?: string;
+  file_size_bytes?: number;
+  started_at: string;
+  completed_at?: string;
+}
+
+// Error Response
+export interface ErrorResponse {
+  error: {
+    code: string;
+    message: string;
+    details?: Record<string, any>;
+    timestamp: string;
+    request_id?: string;
+  };
+}
+
