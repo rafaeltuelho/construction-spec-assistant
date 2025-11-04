@@ -65,16 +65,21 @@ async def run_fact_extraction(
         # Define progress callback
         async def update_progress(chunks_processed: int, total_chunks: int, percentage: int):
             """Update job progress."""
-            from app.api.schemas.fact import FactExtractionProgress
+            from app.models.fact import FactExtractionProgress
 
-            _extraction_jobs[job_id].progress = FactExtractionProgress(
+            progress = FactExtractionProgress(
                 percentage=percentage,
                 chunks_processed=chunks_processed,
                 total_chunks=total_chunks,
                 estimated_completion=None,  # Could calculate based on processing rate
             )
-            logger.debug(
-                f"Job {job_id} progress: {chunks_processed}/{total_chunks} ({percentage}%)"
+            _extraction_jobs[job_id].progress = progress
+
+            logger.info(
+                f"[PROGRESS] Job {job_id} progress updated: {chunks_processed}/{total_chunks} ({percentage}%) - Progress object: {progress}"
+            )
+            logger.info(
+                f"[PROGRESS] Job {job_id} current state: status={_extraction_jobs[job_id].status}, progress={_extraction_jobs[job_id].progress}"
             )
 
         # Extract facts with progress tracking
