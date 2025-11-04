@@ -32,3 +32,5 @@ __pycache__/
 .ignore*
 .bkp
 data/
+mongodb_data/
+qdrant_storage/

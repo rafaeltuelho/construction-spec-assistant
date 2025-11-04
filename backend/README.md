@@ -472,15 +472,6 @@ docker-compose restart
 curl http://localhost:6333/collections
 ```
 
-## Next Steps
-
-This is **Phase 1: Core Infrastructure**. The following phases will implement:
-
-- **Phase 2**: Document processing (Docling, sectionizer, chunker)
-- **Phase 3**: Fact extraction (LLM-based extraction, unit normalization)
-- **Phase 4**: RAG & Agents (retrievers, LangGraph comparison agent)
-- **Phase 5**: Testing & Documentation
-
 ## License
 
 See the main project LICENSE file.

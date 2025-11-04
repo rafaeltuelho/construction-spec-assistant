@@ -1,22 +1,192 @@
 # Certification Challenge Documentation for the **Construction Spec Assistant** project
 
-## Project Overview
-This is an **agentic AI system** designed to help Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and contractor submittals.
+## 📋 Project Overview
+This is an **agentic AI system** designed to help Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and Contractor Submittals.
+
+## 🎯 Task 1: Defining Your Problem and Audience
+
+### Problem Statement
+The problem we are trying to solve is to help Construction Architects review complex construction documents and identify inconsistencies between original specifications/drawings and contractor submittals more effectively with the help of AI.
+
+#### Why This Is a Problem for Our Specific Users (1-2 paragraphs)
+Construction Architects are responsible for reviewing construction documents and identifying inconsistencies between original specifications/drawings and contractor submittals. 
+This is a time-consuming and error-prone process that can take many hours or days to complete, depending on the complexity of the project and the number of documents involved. 
+Some Submittals and CAD drawings can contain hundreds of pages and contain complex unstructured information that is difficult to review manually. Usually the Subject Matter Experts (SMEs) (eg. Architects, Engineers, etc.) open multiple PDFs in different screens and try to manually compare them. 
+
+## 🛠️ Task 2: Proposing a Solution
+
+### Solution Statement
+Our solution is an agentic AI system that helps Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and contractor submittals more effectively with the help of AI.
 
 The system takes as input from the user the following types of documents.
- - Architectural Drawings (CAD).
- - Construction Specifications.
- - Submittals.
+ - Construction Specifications: following the [CSI standard format](https://www.csiresources.org/standards/overview).
+ - Submittals: non standard structure documents created by contractors.
+ - Product Descriptions: created by product manufacturers (e.g. elevator brochures, insulation product descriptions, etc.)
+ - Architectural CAD Drawings (not yet implemented): technical drawings created by architects using very sophisticated CAD software (e.g. Revit, AutoCAD, etc).
 
- These documents are usually large PDF files containing unstructured data (text, tables, pictures, CAD drawings, etc).
+The system then uses sophisticated parsing mechanisms (including OCR) to extract textual information from these documents and then executes a series of steps to prepare the data for comparison. 
 
- ## Task 1: Defining Your Problem and Audience
+* For CSI Specifications, the system:
+  1. uses a hierarchical "sectionization" mechanism to extract CSI sections
+  2. splits the sections into smaller chunks.
+  3. use an LLMs to extract technical facts from them. 
 
- ### Problem Statement
- The problem we are trying to solve is to help Construction Architects review construction documents and identify inconsistencies between original specifications/drawings and contractor submittals.
+ * For Submittals and Product Descriptions, the system:
+  1. splits the text into smaller chunks.
+  2. indexes the chunks' embeddings in a vector database for hybrid (semantic and keyword) search.
 
- ### Target Audience
- The target audience for this system is Construction Architects.
+Next to that, the system implements a Agentic comparison workflow that compares the extracted facts from the CSI Specifications against the relevant sections in the Submittals and Product Descriptions. 
 
- ### Why This Is a Problem for Our Specific Users (1-2 paragraphs)
- Construction Architects are responsible for reviewing construction documents and identifying inconsistencies between original specifications/drawings and contractor submittals. This is a time-consuming and error-prone process that can be automated using AI.
+Finally, the system generates a report to the user highlighting the inconsistencies and providing evidence from the original documents to support the findings. The user can then review the report and take appropriate action.
+
+### Technology Stack & Tooling Choices
+
+| Component | Tool/Library | Rationale |
+|-----------|--------------|-----------|
+| Backend   | FastAPI      | Modern, fast web framework with automatic OpenAPI docs |
+|           | Python 3.13  | Latest Python version with performance improvements |
+|           | Pydantic     | Data validation and settings management |
+|           | uvicorn      | ASGI server |
+|           | uv           | Python dependency manager |
+|           | Docling      | PDF parsing with OCR support (unstructured.io can also be an option) |
+|           | LangChain    | LLM orchestration and chaining |
+|           | LangGraph    | State machine for agentic workflows |
+|           | LangSmith    | Observability and tracing for LLM workflows |
+|           | OpenAI       | GPT-4 family models for fact extraction and comparison |
+|           | FastEmbed (`BAAI/bge-small-en-v1.5`) | Embedding model for dense retrieval |
+|           | Qdrant       | Vector store for hybrid search |
+|           | MongoDB      | Document storage for facts and metadata |
+|           | Pint         | Unit normalization and conversion |
+| Frontend  | React + TypeScript + Vite | Modern frontend framework with fast dev server |
+|           | Tailwind CSS | Utility-first CSS framework for styling |
+| Evaluation| RAGAS        | Retrieval performance evaluation framework |
+
+### Agentic Reasoning Implementation
+
+#### Where we use LLMs and Agents
+ * **Fact Extraction**: We use an LLM to extract technical facts from the CSI Specifications using a flexible **EAV** JSONL schema (**Entity-Attribute-Value** with evidence).
+ * **Comparison**: We use a LangChain agent to orchestrate the comparison workflow. The agent uses a Retrieval-Augmented Generation (RAG) approach to compare the extracted facts from the CSI Specifications against the relevant sections in the Submittals and Product Descriptions.
+
+## 📊 Task 3: Dealing with the Data
+
+### Data Sources
+ 1. Specifications: 
+    - PDF document following the CSI standard format containing technical specifications for a specific product used in a construction project.
+    - This document is the source of truth for the technical requirements of a specific product used in the project. From it, we extract the technical facts that we will compare against the submittals.
+ 2. Submittals and Product Descriptions: 
+    - PDFs created by contractors or manufacturers containing product and installation details about the products they are submitting for a specific project.
+    - These documents are the target of our comparison. The Agent will compare the technical facts extracted from the specifications against the relevant sections in the submittals.
+
+### Default Chunking Strategy
+
+##### Construction Documentation (PDF)
+ * **Specification document**.
+   * Strategy: 
+     * First pass: Hierarchical sectionization (PART 1/2/3 structure following the CSI standard)
+     * Second pass: Chunking within sections aligned to headings/bullets
+       * 700 tokens with 10-15% overlap
+   * Rationale: Leverage the hierarchical structure of the CSI specifications to extract technical facts. Preserves meaning across headings/paragraphs; overlap improves recall for boundary cases.
+ 
+ The Spec document pass through a multi-step process to extract the technical facts which is better understood using the following diagram:
+ 
+ ![Spec processing pipeline](docs/images/csi-spec-doc-processing-pipeline.png)
+
+ * **Submittals and Product Descriptions**:
+   * Strategy: Simple paragraph-based (or sentence-based when the paragraphs are too long) chunking
+     * 700 tokens with 10-15% overlap
+   * Rationale: No hierarchical structure to preserve. Paragraphs are roughly independent. Overlap helps preserve context recall.
+
+## 🚀 Task 4: Building an End-to-End Agentic RAG Prototype
+
+### Prototype High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      FastAPI Application                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   Document   │  │     Fact     │  │  Comparison  │       │
+│  │  Processing  │  │  Extraction  │  │    Agent     │       │
+│  │   Endpoints  │  │   Endpoints  │  │   Endpoints  │       │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
+│         │                 │                 │               │
+├─────────┼─────────────────┼─────────────────┼───────────────┤
+│         │                 │                 │               │
+│  ┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐       │
+│  │   Document   │  │     Fact     │  │  Comparison  │       │
+│  │  Processing  │  │  Extraction  │  │    Agent     │       │
+│  │   Service    │  │   Service    │  │   Service    │       │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
+│         │                 │                 │               │
+├─────────┼─────────────────┼─────────────────┼───────────────┤
+│         │                 │                 │               │
+│  ┌──────▼─────────────────▼─────────────────▼──────────┐    │
+│  │              Core Domain Models                     │    │
+│  │  (Section, Chunk, Fact, Entity, Attribute, Value)   │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   Docling    │  │   LangChain  │  │    Qdrant    │       │
+│  │ Integration  │  │  /LangGraph  │  │  VectorStore │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   MongoDB    │  │    OpenAI    │  │    Pint      │       │
+│  │   Client     │  │     LLM      │  │ Unit Normaliz│       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### RAG and Agent Architecture
+
+RAG (Retrieval-Augmented Generation) system and LangGraph-based comparison agents for comparing specification facts against submittal documents.
+
+```
+┌─────────────────┐
+│  Spec Fact      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Query Builder  │
+│  (Dense+Sparse) │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Ensemble       │
+│  Retriever      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  LangGraph      │
+│  Comparison     │
+│  Agent          │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Verdict +      │
+│  Evidence       │
+└─────────────────┘
+```
+
+### API Documentation
+
+Once the server is running, access the interactive API documentation:
+
+- **Swagger UI**: http://localhost:8000/api/v1/docs
+- **ReDoc**: http://localhost:8000/api/v1/redoc
+
+### Web UI
+ - Web Interface: http://localhost:3000
+
+## 🧪 Task 5: Creating a Golden Test Data Set
+
+### RAGAS Framework Evaluation Results
+We evaluated our pipeline using the RAGAS framework with a standardized dataset of 15 test cases covering all business domains. Here are the comprehensive results:
