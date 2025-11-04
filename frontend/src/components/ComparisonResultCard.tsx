@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ComparisonResult, AnnotationType } from '../types/api';
+import type { ComparisonResult, AnnotationType, Fact, DocumentSection } from '../types/api';
 
 interface ComparisonResultCardProps {
   result: ComparisonResult;
@@ -18,6 +18,13 @@ export function ComparisonResultCard({
   const [noteText, setNoteText] = useState(initialNoteText);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+
+  // Context data state
+  const [factData, setFactData] = useState<Fact | null>(null);
+  const [sectionData, setSectionData] = useState<DocumentSection | null>(null);
+  const [loadingContext, setLoadingContext] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
 
   // Update state when initial values change (e.g., when navigating between tabs)
   useEffect(() => {
@@ -62,6 +69,46 @@ export function ComparisonResultCard({
       setSelectedAnnotation(null);
     }
     // Don't fold on cancel - keep expanded
+  };
+
+  // Fetch context data (fact and section)
+  const fetchContextData = async () => {
+    if (!result.spec_fact.fact_id || factData) {
+      // No fact_id available or already loaded
+      return;
+    }
+
+    setLoadingContext(true);
+    setContextError(null);
+
+    try {
+      // Fetch fact details
+      const factResponse = await fetch(`/api/v1/facts/${result.spec_fact.fact_id}`);
+
+      if (!factResponse.ok) {
+        throw new Error(`Failed to fetch fact: ${factResponse.statusText}`);
+      }
+
+      const fact: Fact = await factResponse.json();
+      setFactData(fact);
+
+      // Fetch section details using section_id from fact context
+      if (fact.context?.section_id) {
+        const sectionResponse = await fetch(`/api/v1/documents/sections/${fact.context.section_id}`);
+
+        if (sectionResponse.ok) {
+          const section: DocumentSection = await sectionResponse.json();
+          setSectionData(section);
+        } else {
+          console.warn(`Failed to fetch section: ${sectionResponse.statusText}`);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch context data:', error);
+      setContextError(error instanceof Error ? error.message : 'Failed to load context');
+    } finally {
+      setLoadingContext(false);
+    }
   };
 
   const getVerdictColor = () => {
@@ -201,6 +248,91 @@ export function ComparisonResultCard({
         <h3 className="text-sm font-semibold text-gray-700 mb-1">Analysis</h3>
         <p className="text-sm text-gray-700">{result.reasoning}</p>
       </div>
+
+      {/* Document Context Section */}
+      {result.spec_fact.fact_id && (
+        <div className="mb-4 border-t border-gray-200 pt-4">
+          <button
+            onClick={() => {
+              if (!factData && !loadingContext) {
+                fetchContextData();
+              }
+              setContextExpanded(!contextExpanded);
+            }}
+            className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
+          >
+            <h3 className="text-sm font-semibold text-gray-700">Document Context</h3>
+            <svg
+              className={`h-4 w-4 transform transition-transform ${contextExpanded ? 'rotate-180' : ''}`}
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+
+          {contextExpanded && (
+            <div className="mt-3 pl-2">
+              {loadingContext ? (
+                <p className="text-sm text-gray-500">Loading context...</p>
+              ) : contextError ? (
+                <p className="text-sm text-red-600">Error: {contextError}</p>
+              ) : factData ? (
+                <>
+                  {/* Header path breadcrumb */}
+                  {factData.context?.header_path && factData.context.header_path.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs text-gray-500 mb-1">Section Path:</p>
+                      <div className="flex items-center flex-wrap gap-1 text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-200">
+                        {factData.context.header_path.map((header, idx) => (
+                          <div key={idx} className="flex items-center">
+                            {idx > 0 && <span className="text-gray-400 mx-1">›</span>}
+                            <span className="font-medium">{header}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Source span */}
+                  {factData.context?.source_span && (
+                    <div className="mb-3">
+                      <p className="text-xs text-gray-500 mb-1">Source Text:</p>
+                      <p className="text-sm text-gray-700 italic bg-blue-50 p-2 rounded border border-blue-200">
+                        "{factData.context.source_span}"
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Section content */}
+                  {sectionData && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded border border-gray-200">
+                      <p className="text-sm font-medium text-gray-700 mb-2">
+                        {sectionData.section_number && `${sectionData.section_number} - `}
+                        {sectionData.title}
+                      </p>
+                      <details className="text-sm text-gray-600">
+                        <summary className="cursor-pointer text-primary-600 hover:text-primary-700 font-medium">
+                          View full section content
+                        </summary>
+                        <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed max-h-64 overflow-y-auto">
+                          {sectionData.content}
+                        </p>
+                      </details>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">Context information not available</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Annotation Badges */}
       <div className="flex items-center space-x-2 pt-4 border-t border-gray-200">

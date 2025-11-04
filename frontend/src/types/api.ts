@@ -108,9 +108,67 @@ export interface RetrievedChunk {
   relevance_score: number;
 }
 
+// Fact-related types
+export interface Entity {
+  type?: string | null;
+  name?: string | null;
+  manufacturer?: string | null;
+}
+
+export interface Attribute {
+  raw: string;
+  canonical?: string | null;
+}
+
+export interface Value {
+  raw: string;
+  type: string;
+  num?: number | null;
+  unit?: string | null;
+  min?: number | null;
+  max?: number | null;
+}
+
+export interface FactContext {
+  doc_id: string;
+  section_id: string;
+  header_path: string[];
+  source_span: string;
+  confidence: number;
+}
+
+export interface Fact {
+  id: string;
+  entity: Entity;
+  attribute: Attribute;
+  value: Value;
+  op: string;
+  qualifiers?: Record<string, unknown> | null;
+  context: FactContext;
+}
+
+export interface SpecFact {
+  fact_id?: string;  // Added for context retrieval
+  entity: Entity;
+  attribute: Attribute;
+  value: Value;
+  op: string;
+}
+
+export interface DocumentSection {
+  section_id: string;
+  document_id: string;
+  title: string;
+  level: number;
+  section_number?: string | null;
+  content: string;
+  parent_section_id?: string | null;
+  order_index: number;
+}
+
 export interface ComparisonResult {
   comparison_id: string;
-  spec_fact: Record<string, any>;
+  spec_fact: SpecFact;
   submittal_document_id: string;
   verdict: Verdict;
   confidence: number;
@@ -194,7 +252,7 @@ export interface ErrorResponse {
   error: {
     code: string;
     message: string;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
     timestamp: string;
     request_id?: string;
   };
