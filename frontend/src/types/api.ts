@@ -42,6 +42,14 @@ export interface DocumentMetadata {
   token_count: number;
 }
 
+export interface ProcessingStats {
+  total_sections: number;
+  sections_by_level: Record<string, number>;
+  total_chunks: number;
+  total_tokens: number;
+  avg_chunk_tokens: number;
+}
+
 export interface DocumentStatusResponse {
   document_id: string;
   filename: string;
@@ -51,6 +59,7 @@ export interface DocumentStatusResponse {
   created_at: string;
   completed_at?: string;
   metadata?: DocumentMetadata;
+  processing_stats?: ProcessingStats;
 }
 
 // Fact Extraction

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getDocumentStatus, getFactExtractionStatus, getComparisonStatus } from '../services/api';
+import type { ProcessingStats } from '../types/api';
 
 interface ProcessingStatusProps {
   type: 'document' | 'fact_extraction' | 'comparison';
@@ -13,6 +14,7 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
   const [progress, setProgress] = useState<number>(0);
   const [currentStage, setCurrentStage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [processingStats, setProcessingStats] = useState<ProcessingStats | null>(null);
 
   useEffect(() => {
     let intervalId: number;
@@ -26,6 +28,10 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
           setCurrentStage(response.progress?.current_stage || '');
 
           if (response.status === 'completed') {
+            // Capture processing statistics when completed
+            if (response.processing_stats) {
+              setProcessingStats(response.processing_stats);
+            }
             clearInterval(intervalId);
             onComplete?.();
           } else if (response.status === 'failed') {
@@ -155,15 +161,58 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
       )}
 
       {status === 'completed' && (
-        <div className="flex items-center space-x-2 text-green-600">
-          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <span className="text-sm font-medium">Processing complete</span>
+        <div>
+          <div className="flex items-center space-x-2 text-green-600 mb-3">
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="text-sm font-medium">Processing complete</span>
+          </div>
+
+          {/* Display processing statistics */}
+          {processingStats && (
+            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <h4 className="text-xs font-semibold text-green-900 mb-2">Processing Statistics</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Sections:</span>
+                  <span className="font-medium text-gray-900">{processingStats.total_sections}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Chunks:</span>
+                  <span className="font-medium text-gray-900">{processingStats.total_chunks}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Total Tokens:</span>
+                  <span className="font-medium text-gray-900">{processingStats.total_tokens.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Avg Chunk Size:</span>
+                  <span className="font-medium text-gray-900">{Math.round(processingStats.avg_chunk_tokens)} tokens</span>
+                </div>
+              </div>
+
+              {/* Display sections by level if available */}
+              {Object.keys(processingStats.sections_by_level).length > 0 && (
+                <div className="mt-2 pt-2 border-t border-green-200">
+                  <p className="text-xs font-medium text-gray-700 mb-1">Sections by Level:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(processingStats.sections_by_level)
+                      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                      .map(([level, count]) => (
+                        <span key={level} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          Level {level}: {count}
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
