@@ -51,7 +51,14 @@ async def retrieve_node(
 
         # Log query information
         if isinstance(query, QueryTerms):
-            logger.info(f"Retrieving documents with QueryTerms: dense='{query.dense[:100]}...'")
+            from app.retrievers.query_builder import bm25_query_from_sparse
+
+            bm25_query = bm25_query_from_sparse(query.sparse)
+            logger.info(
+                f"Retrieving documents with QueryTerms:\n"
+                f"  - Dense (semantic): '{query.dense[:100]}...'\n"
+                f"  - Sparse (BM25): '{bm25_query[:100]}...'"
+            )
         else:
             logger.info(f"Retrieving documents for query: {query[:100]}...")
 
