@@ -156,6 +156,9 @@ async def index_chunks_in_qdrant(
                     "token_count": chunk.token_count,
                     "chunk_index": chunk.chunk_index,
                     "total_chunks": chunk.total_chunks,
+                    # Page number tracking (from Docling provenance)
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
                 },
             )
             points.append(point)

@@ -69,11 +69,19 @@ class RetrievedChunk(BaseModel):
         chunk_id: Unique chunk identifier
         content: Chunk content (truncated)
         relevance_score: Relevance score from retrieval
+        page_start: Starting page number (0-indexed, from Docling provenance)
+        page_end: Ending page number (0-indexed, from Docling provenance)
     """
 
     chunk_id: str = Field(..., description="Unique chunk identifier")
     content: str = Field(..., description="Chunk content (truncated)")
     relevance_score: float = Field(..., description="Relevance score from retrieval")
+    page_start: Optional[int] = Field(
+        None, description="Starting page number (0-indexed, from Docling provenance)"
+    )
+    page_end: Optional[int] = Field(
+        None, description="Ending page number (0-indexed, from Docling provenance)"
+    )
 
 
 class ComparisonResult(BaseModel):

@@ -94,6 +94,9 @@ class DenseRetriever(BaseRetriever):
                         "section_path": result.payload.get("section_path", ""),
                         "relevance_score": float(result.score),
                         "retrieval_method": "dense",
+                        # Page number tracking (from Docling provenance)
+                        "page_start": result.payload.get("page_start"),
+                        "page_end": result.payload.get("page_end"),
                     },
                 )
                 documents.append(doc)

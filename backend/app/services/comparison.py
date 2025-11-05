@@ -105,6 +105,9 @@ async def compare_spec_to_submittal(
                 if len(doc.page_content) > 200
                 else doc.page_content,
                 "relevance_score": doc.metadata.get("relevance_score", 0.0),
+                # Page number tracking (from Docling provenance)
+                "page_start": doc.metadata.get("page_start"),
+                "page_end": doc.metadata.get("page_end"),
             }
             for doc in final_state.get("retrieved_docs", [])
         ]
@@ -226,6 +229,9 @@ async def _create_retriever(
                 "document_id": chunk.document_id,
                 "section_title": chunk.section_title,
                 "section_number": chunk.section_number or "",
+                # Page number tracking (from Docling provenance)
+                "page_start": chunk.page_start,
+                "page_end": chunk.page_end,
             },
         )
         for chunk in chunks
