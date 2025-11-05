@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getDocumentStatus, getFactExtractionStatus, getComparisonStatus } from '../services/api';
-import type { ProcessingStats } from '../types/api';
+import type { ProcessingStats, DocumentType } from '../types/api';
 
 interface ProcessingStatusProps {
   type: 'document' | 'fact_extraction' | 'comparison';
@@ -9,12 +9,21 @@ interface ProcessingStatusProps {
   onError?: (error: string) => void;
 }
 
+interface DocumentMetadata {
+  filename: string;
+  parse_time?: number;
+  file_size: number;
+  document_type: DocumentType;
+}
+
 export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingStatusProps) {
   const [status, setStatus] = useState<string>('pending');
   const [progress, setProgress] = useState<number>(0);
   const [currentStage, setCurrentStage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [processingStats, setProcessingStats] = useState<ProcessingStats | null>(null);
+  const [documentMetadata, setDocumentMetadata] = useState<DocumentMetadata | null>(null);
+  const [statsExpanded, setStatsExpanded] = useState(false);
 
   useEffect(() => {
     let intervalId: number;
@@ -28,9 +37,17 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
           setCurrentStage(response.progress?.current_stage || '');
 
           if (response.status === 'completed') {
-            // Capture processing statistics when completed
+            // Capture processing statistics and metadata when completed
             if (response.processing_stats) {
               setProcessingStats(response.processing_stats);
+            }
+            if (response.metadata) {
+              setDocumentMetadata({
+                filename: response.metadata.filename,
+                parse_time: response.metadata.parse_time,
+                file_size: response.metadata.file_size,
+                document_type: response.metadata.document_type,
+              });
             }
             clearInterval(intervalId);
             onComplete?.();
@@ -173,42 +190,120 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
             <span className="text-sm font-medium">Processing complete</span>
           </div>
 
-          {/* Display processing statistics */}
-          {processingStats && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <h4 className="text-xs font-semibold text-green-900 mb-2">Processing Statistics</h4>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Sections:</span>
-                  <span className="font-medium text-gray-900">{processingStats.total_sections}</span>
+          {/* Display processing statistics - Collapsible */}
+          {processingStats && documentMetadata && (
+            <div className="mt-3 border border-gray-300 rounded-lg">
+              {/* Collapsible Header */}
+              <button
+                onClick={() => setStatsExpanded(!statsExpanded)}
+                className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors rounded-t-lg"
+              >
+                <div className="flex items-center space-x-2">
+                  <svg
+                    className="h-4 w-4 text-gray-600"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                    <path
+                      fillRule="evenodd"
+                      d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <span className="text-xs font-semibold text-gray-700">
+                    Processing Details (Advanced)
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Chunks:</span>
-                  <span className="font-medium text-gray-900">{processingStats.total_chunks}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Tokens:</span>
-                  <span className="font-medium text-gray-900">{processingStats.total_tokens.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Chunk Size:</span>
-                  <span className="font-medium text-gray-900">{Math.round(processingStats.avg_chunk_tokens)} tokens</span>
-                </div>
-              </div>
+                <svg
+                  className={`h-5 w-5 text-gray-500 transition-transform ${
+                    statsExpanded ? 'transform rotate-180' : ''
+                  }`}
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
 
-              {/* Display sections by level if available */}
-              {Object.keys(processingStats.sections_by_level).length > 0 && (
-                <div className="mt-2 pt-2 border-t border-green-200">
-                  <p className="text-xs font-medium text-gray-700 mb-1">Sections by Level:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(processingStats.sections_by_level)
-                      .sort(([a], [b]) => parseInt(a) - parseInt(b))
-                      .map(([level, count]) => (
-                        <span key={level} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          Level {level}: {count}
+              {/* Collapsible Content */}
+              {statsExpanded && (
+                <div className="p-3 bg-white border-t border-gray-200">
+                  {/* Document Metadata */}
+                  <div className="mb-3 pb-3 border-b border-gray-200">
+                    <h5 className="text-xs font-semibold text-gray-700 mb-2">Document Info</h5>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Filename:</span>
+                        <span className="font-medium text-gray-900 truncate ml-2 max-w-xs" title={documentMetadata.filename}>
+                          {documentMetadata.filename}
                         </span>
-                      ))}
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Document Type:</span>
+                        <span className="font-medium text-gray-900 capitalize">
+                          {documentMetadata.document_type.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">File Size:</span>
+                        <span className="font-medium text-gray-900">
+                          {(documentMetadata.file_size / 1024).toFixed(1)} KB
+                        </span>
+                      </div>
+                      {documentMetadata.parse_time && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Parse Time:</span>
+                          <span className="font-medium text-gray-900">
+                            {documentMetadata.parse_time.toFixed(2)}s
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Processing Statistics */}
+                  <div className="mb-3 pb-3 border-b border-gray-200">
+                    <h5 className="text-xs font-semibold text-gray-700 mb-2">Processing Stats</h5>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Sections:</span>
+                        <span className="font-medium text-gray-900">{processingStats.total_sections}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Chunks:</span>
+                        <span className="font-medium text-gray-900">{processingStats.total_chunks}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Total Tokens:</span>
+                        <span className="font-medium text-gray-900">{processingStats.total_tokens.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Avg Chunk Size:</span>
+                        <span className="font-medium text-gray-900">{Math.round(processingStats.avg_chunk_tokens)} tokens</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Display sections by level if available */}
+                  {Object.keys(processingStats.sections_by_level).length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-semibold text-gray-700 mb-2">Sections by Level</h5>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(processingStats.sections_by_level)
+                          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                          .map(([level, count]) => (
+                            <span key={level} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                              Level {level}: {count}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
