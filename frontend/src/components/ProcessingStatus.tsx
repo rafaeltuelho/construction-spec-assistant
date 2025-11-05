@@ -24,6 +24,7 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
   const [processingStats, setProcessingStats] = useState<ProcessingStats | null>(null);
   const [documentMetadata, setDocumentMetadata] = useState<DocumentMetadata | null>(null);
   const [statsExpanded, setStatsExpanded] = useState(false);
+  const [hasCalledOnComplete, setHasCalledOnComplete] = useState(false);
 
   useEffect(() => {
     let intervalId: number;
@@ -50,7 +51,12 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
               });
             }
             clearInterval(intervalId);
-            onComplete?.();
+
+            // Only call onComplete once to prevent multiple fact extraction triggers
+            if (!hasCalledOnComplete) {
+              setHasCalledOnComplete(true);
+              onComplete?.();
+            }
           } else if (response.status === 'failed') {
             clearInterval(intervalId);
             setError('Document processing failed');
@@ -64,7 +70,12 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
 
           if (response.status === 'completed') {
             clearInterval(intervalId);
-            onComplete?.();
+
+            // Only call onComplete once
+            if (!hasCalledOnComplete) {
+              setHasCalledOnComplete(true);
+              onComplete?.();
+            }
           } else if (response.status === 'failed') {
             clearInterval(intervalId);
             setError(response.error || 'Fact extraction failed');
@@ -81,7 +92,12 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
 
           if (response.status === 'completed') {
             clearInterval(intervalId);
-            onComplete?.();
+
+            // Only call onComplete once
+            if (!hasCalledOnComplete) {
+              setHasCalledOnComplete(true);
+              onComplete?.();
+            }
           } else if (response.status === 'failed') {
             clearInterval(intervalId);
             setError(response.error || 'Comparison failed');
