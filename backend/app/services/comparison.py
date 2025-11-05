@@ -15,6 +15,7 @@ import logging
 from app.retrievers import (
     DenseRetriever,
     SparseRetriever,
+    ParentDocumentRetriever,
     EnsembleRetriever,
     build_query_terms_from_fact,
 )
@@ -61,7 +62,10 @@ async def compare_spec_to_submittal(
 
         # Build query from spec fact
         query_terms = build_query_terms_from_fact(spec_fact)
-        logger.debug(f"Built query: dense='{query_terms.dense[:100]}...'")
+        logger.debug(
+            f"Built query: dense='{query_terms.dense[:100]}...', "
+            f"sparse_must={query_terms.sparse.get('must', [])}"
+        )
 
         # Create retriever based on strategy
         retriever = await _create_retriever(
@@ -77,10 +81,10 @@ async def compare_spec_to_submittal(
             retriever=retriever, llm_client=llm_client, top_k=top_k, filters=filters
         )
 
-        # Run comparison
+        # Run comparison - pass QueryTerms object to support different query formats
         initial_state: ComparisonState = {
             "spec_fact": spec_fact,
-            "query": query_terms.dense,
+            "query": query_terms,  # Pass QueryTerms object instead of just dense query
             "retrieved_docs": [],
             "result": {},
             "error": "",
@@ -199,7 +203,7 @@ async def _create_retriever(
     Create retriever based on strategy.
 
     Args:
-        strategy: "dense", "sparse", or "ensemble"
+        strategy: "dense", "sparse", "parent_document", or "ensemble"
         submittal_document_id: Document ID to retrieve from
         db: MongoDB database instance
         qdrant_client: Qdrant client instance
@@ -243,15 +247,29 @@ async def _create_retriever(
         return DenseRetriever(qdrant_client=qdrant_client, collection_name="construction_docs")
     elif strategy == "sparse":
         return SparseRetriever(corpus=documents)
+    elif strategy == "parent_document":
+        # Use ParentDocument retriever with small-to-big strategy
+        return ParentDocumentRetriever(
+            qdrant_client=qdrant_client,
+            parent_documents=documents,
+            collection_name=f"construction_docs_parent_{submittal_document_id}",
+            child_chunk_size=750,
+            child_chunk_overlap=75,
+        )
     elif strategy == "ensemble":
-        dense_retriever = DenseRetriever(
-            qdrant_client=qdrant_client, collection_name="construction_docs"
+        # Use ParentDocument + BM25 ensemble (optimal approach from notebook)
+        parent_retriever = ParentDocumentRetriever(
+            qdrant_client=qdrant_client,
+            parent_documents=documents,
+            collection_name=f"construction_docs_parent_{submittal_document_id}",
+            child_chunk_size=750,
+            child_chunk_overlap=75,
         )
         sparse_retriever = SparseRetriever(corpus=documents)
         return EnsembleRetriever(
-            dense_retriever=dense_retriever,
+            semantic_retriever=parent_retriever,
             sparse_retriever=sparse_retriever,
-            dense_weight=0.5,
+            semantic_weight=0.5,
             sparse_weight=0.5,
         )
     else:

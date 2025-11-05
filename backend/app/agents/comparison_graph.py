@@ -15,6 +15,7 @@ import json
 import logging
 
 from app.retrievers.base import BaseRetriever
+from app.retrievers.query_builder import QueryTerms
 from app.agents.prompts import COMPARISON_SYSTEM_PROMPT, COMPARISON_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class ComparisonState(TypedDict):
     """State for comparison workflow."""
 
     spec_fact: Dict[str, Any]  # Input specification fact
-    query: str  # Generated query for retrieval
+    query: Union[str, QueryTerms]  # Query for retrieval (string or QueryTerms object)
     retrieved_docs: List[Document]  # Retrieved submittal chunks
     result: Dict[str, Any]  # Final comparison result
     error: str  # Error message if any
@@ -47,8 +48,14 @@ async def retrieve_node(
     """
     try:
         query = state.get("query", "")
-        logger.info(f"Retrieving documents for query: {query[:100]}...")
 
+        # Log query information
+        if isinstance(query, QueryTerms):
+            logger.info(f"Retrieving documents with QueryTerms: dense='{query.dense[:100]}...'")
+        else:
+            logger.info(f"Retrieving documents for query: {query[:100]}...")
+
+        # Pass query to retriever (supports both string and QueryTerms)
         docs = await retriever.retrieve(query=query, top_k=top_k, filters=filters)
 
         state["retrieved_docs"] = docs
