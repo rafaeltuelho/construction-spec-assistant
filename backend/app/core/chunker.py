@@ -45,6 +45,13 @@ class SectionChunk(BaseModel):
     token_count: int = Field(..., description="Number of tokens in chunk")
     chunk_index: int = Field(..., description="Index of chunk within section")
     total_chunks: int = Field(..., description="Total chunks in section")
+    # Page number tracking (from Docling provenance)
+    page_start: Optional[int] = Field(
+        None, description="Starting page number (0-indexed, from Docling provenance)"
+    )
+    page_end: Optional[int] = Field(
+        None, description="Ending page number (0-indexed, from Docling provenance)"
+    )
 
 
 def _split_by_sentences(text: str) -> List[str]:
@@ -167,6 +174,9 @@ def chunk_section(
             token_count=count_tokens(chunk_text, model),
             chunk_index=idx,
             total_chunks=len(text_chunks),
+            # Copy page numbers from section
+            page_start=section.page_start,
+            page_end=section.page_end,
         )
         section_chunks.append(chunk)
 
@@ -412,6 +422,9 @@ def hybrid_chunk_document(
         # Extract metadata if available
         # Docling chunks have meta attribute with path information
         section_title = "Document Content"
+        page_start = None
+        page_end = None
+
         if hasattr(docling_chunk, "meta") and docling_chunk.meta:
             # Try to get heading path from metadata
             if hasattr(docling_chunk.meta, "headings") and docling_chunk.meta.headings:
@@ -421,6 +434,19 @@ def hybrid_chunk_document(
                 first_item = docling_chunk.meta.doc_items[0]
                 if hasattr(first_item, "label"):
                     section_title = first_item.label
+
+            # Extract page numbers from provenance
+            if hasattr(docling_chunk.meta, "doc_items") and docling_chunk.meta.doc_items:
+                page_numbers = set()
+                for doc_item in docling_chunk.meta.doc_items:
+                    if hasattr(doc_item, "prov") and doc_item.prov:
+                        for prov in doc_item.prov:
+                            if hasattr(prov, "page_no"):
+                                page_numbers.add(prov.page_no)
+
+                if page_numbers:
+                    page_start = min(page_numbers)
+                    page_end = max(page_numbers)
 
         section_chunks.append(
             SectionChunk(
@@ -432,6 +458,9 @@ def hybrid_chunk_document(
                 token_count=count_tokens(chunk_text, model),
                 chunk_index=idx,
                 total_chunks=len(docling_chunks),
+                # Page numbers from Docling provenance
+                page_start=page_start,
+                page_end=page_end,
             )
         )
 

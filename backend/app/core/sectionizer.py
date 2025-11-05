@@ -12,7 +12,7 @@ following the Construction Specifications Institute (CSI) format:
 
 import re
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
 from app.utils.logging import get_logger
@@ -367,7 +367,76 @@ def _sectionize_notebook_style(md_text: str) -> List[Section]:
     return sections
 
 
-def sectionize_markdown(markdown_content: str, use_notebook_logic: bool = False) -> List[Section]:
+def _get_page_number_for_content(
+    content: str, markdown_content: str, page_mapping: Optional[Dict[int, List[int]]]
+) -> Optional[int]:
+    """
+    Determine the page number for a section based on its content position in the markdown.
+
+    Args:
+        content: Section content to find
+        markdown_content: Full markdown content
+        page_mapping: Page number mapping from Docling (char_position -> [page_no, ...])
+
+    Returns:
+        Page number (0-indexed) or None if not found
+    """
+    if not page_mapping or not content:
+        return None
+
+    try:
+        # Find the position of the content in the markdown
+        content_start = markdown_content.find(content[:100])  # Use first 100 chars to find position
+        if content_start == -1:
+            return None
+
+        # Find the closest character position in the mapping
+        closest_pos = None
+        min_distance = float("inf")
+
+        for pos in page_mapping.keys():
+            distance = abs(pos - content_start)
+            if distance < min_distance:
+                min_distance = distance
+                closest_pos = pos
+
+        if closest_pos is not None and page_mapping[closest_pos]:
+            return page_mapping[closest_pos][0]  # Return first page number
+
+    except Exception as e:
+        logger.debug(f"Failed to determine page number for content: {str(e)}")
+
+    return None
+
+
+def _assign_page_numbers_to_sections(
+    sections: List[Section], markdown_content: str, page_mapping: Dict[int, List[int]]
+) -> None:
+    """
+    Recursively assign page numbers to sections based on their content position.
+
+    Args:
+        sections: List of sections to process
+        markdown_content: Full markdown content
+        page_mapping: Page number mapping from Docling
+    """
+    for section in sections:
+        # Determine page number for this section
+        page_no = _get_page_number_for_content(section.content, markdown_content, page_mapping)
+        if page_no is not None:
+            section.page_start = page_no
+            section.page_end = page_no  # For now, assume single page (can be refined later)
+
+        # Recursively process subsections
+        if section.subsections:
+            _assign_page_numbers_to_sections(section.subsections, markdown_content, page_mapping)
+
+
+def sectionize_markdown(
+    markdown_content: str,
+    use_notebook_logic: bool = False,
+    page_mapping: Optional[Dict[int, List[int]]] = None,
+) -> List[Section]:
     """
     Parse markdown content into hierarchical CSI sections.
 
@@ -375,6 +444,8 @@ def sectionize_markdown(markdown_content: str, use_notebook_logic: bool = False)
         markdown_content: Markdown text to parse
         use_notebook_logic: If True, use notebook-style flat section parsing with CSI-aware heuristics.
                            If False (default), use hierarchical tree-based parsing.
+        page_mapping: Optional page number mapping from Docling (char_position -> [page_no, ...])
+                     Used to determine page numbers for sections
 
     Returns:
         List of Section objects (hierarchical if use_notebook_logic=False, flat if True)
@@ -384,12 +455,17 @@ def sectionize_markdown(markdown_content: str, use_notebook_logic: bool = False)
         return []
 
     if use_notebook_logic:
-        return _sectionize_notebook_style(markdown_content)
+        sections = _sectionize_notebook_style(markdown_content)
     else:
         lines = markdown_content.split("\n")
         sections = _build_hierarchy(lines)
         logger.info(f"Parsed {len(sections)} top-level sections")
-        return sections
+
+    # Assign page numbers to sections if page mapping is available
+    if page_mapping:
+        _assign_page_numbers_to_sections(sections, markdown_content, page_mapping)
+
+    return sections
 
 
 def flatten_sections(sections: List[Section]) -> List[Section]:

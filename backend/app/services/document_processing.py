@@ -158,8 +158,23 @@ async def process_document(
             DocumentType.PRODUCT_DESCRIPTION,
         ]
 
-        markdown_content, parse_metadata, docling_doc = await parse_document_with_fallback(
-            pdf_path, try_without_ocr_first=not use_ocr, return_docling_doc=return_docling_doc
+        # Always extract page mapping for all document types
+        extract_page_mapping = True
+
+        (
+            markdown_content,
+            parse_metadata,
+            docling_doc,
+            page_mapping,
+        ) = await parse_document_with_fallback(
+            pdf_path,
+            try_without_ocr_first=not use_ocr,
+            return_docling_doc=return_docling_doc,
+            extract_page_mapping=extract_page_mapping,
+        )
+
+        logger.info(
+            f"[{document_id}] Parsed document with page mapping: {len(page_mapping) if page_mapping else 0} positions"
         )
 
         # Get metadata from existing document or create new
@@ -198,7 +213,10 @@ async def process_document(
             await update_processing_progress(mongodb, document_id, 30, "sectionizing")
 
             # Use notebook-style sectionization for better CSI structure detection
-            sections = sectionize_markdown(markdown_content, use_notebook_logic=True)
+            # Pass page mapping to enable page number tracking
+            sections = sectionize_markdown(
+                markdown_content, use_notebook_logic=True, page_mapping=page_mapping
+            )
 
             if not sections:
                 logger.warning(f"[{document_id}] No sections found in document")
@@ -311,6 +329,9 @@ async def process_document(
                 token_count=chunk.token_count,
                 chunk_index=chunk.chunk_index,
                 total_chunks=chunk.total_chunks,
+                # Copy page numbers from chunk
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
             )
             document_chunks.append(doc_chunk)
 

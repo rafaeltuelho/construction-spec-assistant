@@ -12,8 +12,8 @@ from pathlib import Path
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent / "backend"))
 
+from app.core.chunker import get_chunk_statistics, hybrid_chunk_document, simple_chunk_markdown
 from app.core.docling_parser import parse_document_with_fallback
-from app.core.chunker import hybrid_chunk_document, simple_chunk_markdown, get_chunk_statistics
 
 
 async def test_hybrid_chunker():
@@ -24,15 +24,15 @@ async def test_hybrid_chunker():
     print()
 
     # Find a submittal document
-    data_dir = Path("data")
-    pdf_files = list(data_dir.glob("*.pdf"))
+    # data_dir = Path("data")
+    # pdf_files = list(data_dir.glob("*.pdf"))
 
-    if not pdf_files:
-        print("❌ No PDF files found in data/ directory")
-        return
+    # if not pdf_files:
+    #     print("❌ No PDF files found in data/ directory")
+    #     return
 
     # Use the first PDF as test document
-    test_pdf = pdf_files[0]
+    test_pdf = Path("data/TKE_endura_product_brochure.pdf") #pdf_files[0]
     print(f"Test document: {test_pdf.name}")
     print(f"File size: {test_pdf.stat().st_size / 1024:.1f} KB")
     print()
@@ -40,7 +40,7 @@ async def test_hybrid_chunker():
     # Parse with Docling (get both markdown and Docling document)
     print("Step 1: Parsing PDF with Docling...")
     markdown_content, parse_metadata, docling_doc = await parse_document_with_fallback(
-        test_pdf, try_without_ocr_first=True, return_docling_doc=True
+        test_pdf, try_without_ocr_first=False, return_docling_doc=True
     )
 
     print(f"✅ Parsed successfully")

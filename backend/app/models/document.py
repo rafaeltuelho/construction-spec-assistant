@@ -131,6 +131,13 @@ class DocumentChunk(BaseModel):
     chunk_index: int
     total_chunks: int
     embedding: Optional[List[float]] = None
+    # Page number tracking (from Docling provenance)
+    page_start: Optional[int] = Field(
+        None, description="Starting page number (0-indexed, from Docling provenance)"
+    )
+    page_end: Optional[int] = Field(
+        None, description="Ending page number (0-indexed, from Docling provenance)"
+    )
 
 
 # Request/Response Models

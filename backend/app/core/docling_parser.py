@@ -7,7 +7,7 @@ for parsing PDF files into markdown format with optional OCR.
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
@@ -97,9 +97,98 @@ def create_docling_config(
     return pipeline_options
 
 
+def extract_page_number_mapping(docling_doc: DoclingDocument) -> Dict[int, List[int]]:
+    """
+    Extract page number mapping from Docling document.
+
+    Creates a mapping from character positions in the markdown to page numbers.
+    This allows us to determine which page a section or chunk belongs to.
+
+    Args:
+        docling_doc: Docling document object
+
+    Returns:
+        Dictionary mapping character positions to page numbers (0-indexed)
+        Format: {char_position: [page_no, ...]}
+
+    Example:
+        {
+            0: [0],      # Characters 0-100 are on page 0
+            100: [0],
+            200: [1],    # Characters 200-300 are on page 1
+            ...
+        }
+    """
+    page_mapping: Dict[int, List[int]] = {}
+
+    try:
+        # Iterate through all document items to extract provenance
+        for item, _level in docling_doc.iterate_items():
+            if hasattr(item, "prov") and item.prov:
+                # Get the first provenance item (usually there's only one)
+                prov = item.prov[0]
+                page_no = prov.page_no  # 0-indexed page number
+
+                # Get character span if available
+                if hasattr(prov, "charspan") and prov.charspan:
+                    start_char = prov.charspan[0]
+                    end_char = prov.charspan[1]
+
+                    # Map character positions to page numbers
+                    for char_pos in range(start_char, end_char + 1, 10):  # Sample every 10 chars
+                        if char_pos not in page_mapping:
+                            page_mapping[char_pos] = []
+                        if page_no not in page_mapping[char_pos]:
+                            page_mapping[char_pos].append(page_no)
+
+        logger.debug(f"Extracted page mapping with {len(page_mapping)} character positions")
+
+    except Exception as e:
+        logger.warning(f"Failed to extract page number mapping: {str(e)}")
+        # Return empty mapping on error
+        return {}
+
+    return page_mapping
+
+
+def get_page_number_for_position(
+    char_position: int, page_mapping: Dict[int, List[int]]
+) -> Optional[int]:
+    """
+    Get the page number for a given character position in the markdown.
+
+    Args:
+        char_position: Character position in the markdown text
+        page_mapping: Page number mapping from extract_page_number_mapping()
+
+    Returns:
+        Page number (0-indexed) or None if not found
+    """
+    if not page_mapping:
+        return None
+
+    # Find the closest character position in the mapping
+    closest_pos = None
+    min_distance = float("inf")
+
+    for pos in page_mapping.keys():
+        distance = abs(pos - char_position)
+        if distance < min_distance:
+            min_distance = distance
+            closest_pos = pos
+
+    if closest_pos is not None and page_mapping[closest_pos]:
+        return page_mapping[closest_pos][0]  # Return first page number
+
+    return None
+
+
 def _parse_pdf_sync(
-    pdf_path: Path, pipeline_options: PdfPipelineOptions, return_docling_doc: bool = False
-) -> Tuple[str, Optional[DoclingDocument]]:
+    pdf_path: Path,
+    pipeline_options: PdfPipelineOptions,
+    return_docling_doc: bool = False,
+    extract_page_mapping: bool = False,
+) -> Tuple[str, Optional[DoclingDocument], Optional[Dict[int, List[int]]]]:
     """
     Synchronous PDF parsing with Docling (runs in thread pool).
 
@@ -107,10 +196,12 @@ def _parse_pdf_sync(
         pdf_path: Path to PDF file
         pipeline_options: Docling pipeline configuration
         return_docling_doc: If True, also return the Docling document object
+        extract_page_mapping: If True, extract page number mapping from provenance
 
     Returns:
-        Tuple of (markdown_content, docling_document)
-        If return_docling_doc is False, docling_document will be None
+        Tuple of (markdown_content, docling_document, page_mapping)
+        - If return_docling_doc is False, docling_document will be None
+        - If extract_page_mapping is False, page_mapping will be None
 
     Raises:
         DocumentProcessingError: If parsing fails
@@ -135,7 +226,14 @@ def _parse_pdf_sync(
 
         # Return document object if requested
         docling_doc = result.document if return_docling_doc else None
-        return markdown_content, docling_doc
+
+        # Extract page mapping if requested
+        page_mapping = None
+        if extract_page_mapping and result.document:
+            page_mapping = extract_page_number_mapping(result.document)
+            logger.info(f"Extracted page mapping with {len(page_mapping)} character positions")
+
+        return markdown_content, docling_doc, page_mapping
 
     except Exception as e:
         logger.error(f"Failed to parse PDF {pdf_path.name}: {str(e)}")
@@ -147,7 +245,8 @@ async def parse_document_with_docling(
     use_ocr: bool = True,
     ocr_engine: str = "easyocr",
     return_docling_doc: bool = False,
-) -> Tuple[str, Optional[DoclingDocument]]:
+    extract_page_mapping: bool = False,
+) -> Tuple[str, Optional[DoclingDocument], Optional[Dict[int, List[int]]]]:
     """
     Parse PDF document to markdown using Docling (async).
 
@@ -156,10 +255,12 @@ async def parse_document_with_docling(
         use_ocr: Whether to enable OCR
         ocr_engine: OCR engine to use
         return_docling_doc: If True, also return the Docling document object
+        extract_page_mapping: If True, extract page number mapping from provenance
 
     Returns:
-        Tuple of (markdown_content, docling_document)
-        If return_docling_doc is False, docling_document will be None
+        Tuple of (markdown_content, docling_document, page_mapping)
+        - If return_docling_doc is False, docling_document will be None
+        - If extract_page_mapping is False, page_mapping will be None
 
     Raises:
         DocumentProcessingError: If parsing fails
@@ -177,16 +278,24 @@ async def parse_document_with_docling(
 
     # Run synchronous parsing in thread pool
     loop = asyncio.get_event_loop()
-    markdown_content, docling_doc = await loop.run_in_executor(
-        _executor, _parse_pdf_sync, pdf_path, pipeline_options, return_docling_doc
+    markdown_content, docling_doc, page_mapping = await loop.run_in_executor(
+        _executor,
+        _parse_pdf_sync,
+        pdf_path,
+        pipeline_options,
+        return_docling_doc,
+        extract_page_mapping,
     )
 
-    return markdown_content, docling_doc
+    return markdown_content, docling_doc, page_mapping
 
 
 async def parse_document_with_fallback(
-    pdf_path: Path, try_without_ocr_first: bool = True, return_docling_doc: bool = False
-) -> Tuple[str, Dict[str, Any], Optional[DoclingDocument]]:
+    pdf_path: Path,
+    try_without_ocr_first: bool = True,
+    return_docling_doc: bool = False,
+    extract_page_mapping: bool = False,
+) -> Tuple[str, Dict[str, Any], Optional[DoclingDocument], Optional[Dict[int, List[int]]]]:
     """
     Parse PDF with automatic OCR fallback.
 
@@ -196,11 +305,13 @@ async def parse_document_with_fallback(
         pdf_path: Path to PDF file
         try_without_ocr_first: Whether to try without OCR first
         return_docling_doc: If True, also return the Docling document object
+        extract_page_mapping: If True, extract page number mapping from provenance
 
     Returns:
-        Tuple of (markdown_content, metadata, docling_document)
-        metadata includes: used_ocr, ocr_engine, parse_time
-        If return_docling_doc is False, docling_document will be None
+        Tuple of (markdown_content, metadata, docling_document, page_mapping)
+        - metadata includes: used_ocr, ocr_engine, parse_time
+        - If return_docling_doc is False, docling_document will be None
+        - If extract_page_mapping is False, page_mapping will be None
 
     Raises:
         DocumentProcessingError: If all parsing attempts fail
@@ -216,12 +327,15 @@ async def parse_document_with_fallback(
             # Try without OCR first (faster for digital PDFs)
             logger.info(f"Attempting to parse {pdf_path.name} without OCR")
             try:
-                markdown_content, docling_doc = await parse_document_with_docling(
-                    pdf_path, use_ocr=False, return_docling_doc=return_docling_doc
+                markdown_content, docling_doc, page_mapping = await parse_document_with_docling(
+                    pdf_path,
+                    use_ocr=False,
+                    return_docling_doc=return_docling_doc,
+                    extract_page_mapping=extract_page_mapping,
                 )
                 metadata["used_ocr"] = False
                 metadata["parse_time"] = time.time() - start_time
-                return markdown_content, metadata, docling_doc
+                return markdown_content, metadata, docling_doc, page_mapping
 
             except Exception as e:
                 logger.warning(f"Parsing without OCR failed: {str(e)}, trying with OCR")
@@ -229,14 +343,18 @@ async def parse_document_with_fallback(
 
         # Parse with OCR
         logger.info(f"Parsing {pdf_path.name} with OCR")
-        markdown_content, docling_doc = await parse_document_with_docling(
-            pdf_path, use_ocr=True, ocr_engine="easyocr", return_docling_doc=return_docling_doc
+        markdown_content, docling_doc, page_mapping = await parse_document_with_docling(
+            pdf_path,
+            use_ocr=True,
+            ocr_engine="easyocr",
+            return_docling_doc=return_docling_doc,
+            extract_page_mapping=extract_page_mapping,
         )
         metadata["used_ocr"] = True
         metadata["ocr_engine"] = "easyocr"
         metadata["parse_time"] = time.time() - start_time
 
-        return markdown_content, metadata, docling_doc
+        return markdown_content, metadata, docling_doc, page_mapping
 
     except Exception as e:
         logger.error(f"All parsing attempts failed for {pdf_path.name}: {str(e)}")

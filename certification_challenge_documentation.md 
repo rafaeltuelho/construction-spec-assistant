@@ -77,7 +77,25 @@ Finally, the system generates a report to the user highlighting the inconsistenc
     - PDFs created by contractors or manufacturers containing product and installation details about the products they are submitting for a specific project.
     - These documents are the target of our comparison. The Agent will compare the technical facts extracted from the specifications against the relevant sections in the submittals.
 
-### Default Chunking Strategy
+### Chunking strategies
+
+┌─────────────────────────────────────┐
+│ SPECIFICATION                       │
+│   → Notebook-style sectionization   │
+│   → CSI-aware chunking              │
+│   → Store sections + chunks         │
+│   → NO vector indexing              │
+├─────────────────────────────────────┤
+│ SUBMITTAL / PRODUCT_DESCRIPTION     │
+│   → HybridChunker (table-aware)     │
+│   → Store chunks only               │
+│   → Vector indexing in Qdrant       │
+├─────────────────────────────────────┤
+│ DRAWING                             │
+│   → Simple chunking                 │
+│   → Store chunks only               │
+│   → Vector indexing in Qdrant       │
+└─────────────────────────────────────┘
 
 ##### Construction Documentation (PDF)
  * **Specification document**.
@@ -95,6 +113,24 @@ Finally, the system generates a report to the user highlighting the inconsistenc
    * Strategy: Simple paragraph-based (or sentence-based when the paragraphs are too long) chunking
      * 700 tokens with 10-15% overlap
    * Rationale: No hierarchical structure to preserve. Paragraphs are roughly independent. Overlap helps preserve context recall.
+
+##### 🎯 Benefits
+1. Table Structure Preservation ✅
+ * Tables serialized to Markdown format (not triplet notation)
+ * Maintains readability and structure
+ * Critical for technical specifications
+2. Better Document Hierarchy ✅
+ * Respects document structure from Docling
+ * Extracts section titles from metadata
+ * Better context for retrieval
+3. More Granular Chunking ✅
+ * Smaller, more focused chunks
+ * Better for semantic search
+ * Easier for LLMs to process
+4. Intelligent Merging ✅
+ * `merge_peers=True` combines related sections
+ * Reduces fragmentation
+ * Maintains semantic coherence
 
 ## 🚀 Task 4: Building an End-to-End Agentic RAG Prototype
 
@@ -190,3 +226,5 @@ Once the server is running, access the interactive API documentation:
 
 ### RAGAS Framework Evaluation Results
 We evaluated our pipeline using the RAGAS framework with a standardized dataset of 15 test cases covering all business domains. Here are the comprehensive results:
+
+
