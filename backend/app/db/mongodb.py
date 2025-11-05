@@ -124,12 +124,18 @@ async def update_document_status(
     updates = {"status": status.value}
 
     if error:
-        updates["errors"] = {
+        # Append error to the errors list (not replace it)
+        error_obj = {
             "stage": "processing",
             "error_type": "ProcessingError",
             "message": error,
             "timestamp": datetime.utcnow(),
         }
+        # Use $push to append to the errors array
+        await db.documents.update_one(
+            {"document_id": document_id}, {"$push": {"errors": error_obj}, "$set": updates}
+        )
+        return True
 
     return await update_document(db, document_id, updates)
 
