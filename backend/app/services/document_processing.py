@@ -20,7 +20,12 @@ from qdrant_client import QdrantClient
 from app.config import settings
 from app.core.docling_parser import parse_document_with_fallback, validate_pdf_file
 from app.core.sectionizer import sectionize_markdown, flatten_sections, count_sections
-from app.core.chunker import chunk_sections, get_chunk_statistics, simple_chunk_markdown
+from app.core.chunker import (
+    chunk_sections,
+    get_chunk_statistics,
+    simple_chunk_markdown,
+    hybrid_chunk_document,
+)
 from app.db.mongodb import (
     store_document,
     update_document_status,
@@ -147,8 +152,14 @@ async def process_document(
         logger.info(f"[{document_id}] Step 1: Parsing PDF")
         await update_processing_progress(mongodb, document_id, 10, "parsing")
 
-        markdown_content, parse_metadata = await parse_document_with_fallback(
-            pdf_path, try_without_ocr_first=not use_ocr
+        # For submittals/product descriptions, also get the Docling document for HybridChunker
+        return_docling_doc = document_type in [
+            DocumentType.SUBMITTAL,
+            DocumentType.PRODUCT_DESCRIPTION,
+        ]
+
+        markdown_content, parse_metadata, docling_doc = await parse_document_with_fallback(
+            pdf_path, try_without_ocr_first=not use_ocr, return_docling_doc=return_docling_doc
         )
 
         # Get metadata from existing document or create new
@@ -238,22 +249,44 @@ async def process_document(
             await store_document_sections(mongodb, document_sections)
 
         else:
-            # Submittal/Product Description/Drawing: Use simple chunking
+            # Submittal/Product Description/Drawing: Use HybridChunker or simple chunking
             logger.info(
                 f"[{document_id}] Step 2: Skipping CSI sectionization (document type: {document_type.value})"
             )
             await update_processing_progress(mongodb, document_id, 30, "chunking")
 
-            # Step 3: Simple chunking without hierarchy
-            logger.info(f"[{document_id}] Step 3: Simple chunking (paragraph-based)")
-            await update_processing_progress(mongodb, document_id, 40, "chunking")
+            # Step 3: Chunking based on document type
+            if docling_doc and document_type in [
+                DocumentType.SUBMITTAL,
+                DocumentType.PRODUCT_DESCRIPTION,
+            ]:
+                # Use HybridChunker for submittals/product descriptions (preserves tables)
+                logger.info(
+                    f"[{document_id}] Step 3: Hybrid chunking with table preservation (Docling HybridChunker)"
+                )
+                await update_processing_progress(mongodb, document_id, 40, "chunking")
 
-            chunks = simple_chunk_markdown(
-                markdown_content, max_tokens=max_chunk_tokens, overlap_tokens=chunk_overlap_tokens
-            )
+                chunks = hybrid_chunk_document(
+                    docling_doc, max_tokens=max_chunk_tokens, merge_peers=True
+                )
 
-            chunk_stats = get_chunk_statistics(chunks)
-            logger.info(f"[{document_id}] Created {chunk_stats['total_chunks']} simple chunks")
+                chunk_stats = get_chunk_statistics(chunks)
+                logger.info(
+                    f"[{document_id}] Created {chunk_stats['total_chunks']} hybrid chunks with table preservation"
+                )
+            else:
+                # Use simple chunking for drawings or if Docling doc not available
+                logger.info(f"[{document_id}] Step 3: Simple chunking (paragraph-based)")
+                await update_processing_progress(mongodb, document_id, 40, "chunking")
+
+                chunks = simple_chunk_markdown(
+                    markdown_content,
+                    max_tokens=max_chunk_tokens,
+                    overlap_tokens=chunk_overlap_tokens,
+                )
+
+                chunk_stats = get_chunk_statistics(chunks)
+                logger.info(f"[{document_id}] Created {chunk_stats['total_chunks']} simple chunks")
 
             await update_processing_progress(mongodb, document_id, 70, "chunking")
 

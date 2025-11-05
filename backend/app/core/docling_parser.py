@@ -7,7 +7,7 @@ for parsing PDF files into markdown format with optional OCR.
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
@@ -19,6 +19,7 @@ from docling.datamodel.pipeline_options import (
     TesseractOcrOptions,
 )
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling_core.types.doc import DoclingDocument
 
 from app.utils.logging import get_logger
 from app.utils.exceptions import DocumentProcessingError
@@ -73,7 +74,15 @@ def create_docling_config(
                 force_full_page_ocr=full_page_ocr,
             )
     else:
-        ocr_options = None
+        # When OCR is disabled, still need to provide default OCR options
+        # but set do_ocr=False in pipeline options
+        ocr_options = EasyOcrOptions(
+            lang=["en"],
+            confidence_threshold=0.7,
+            use_gpu=True,
+            recog_network="standard",
+            force_full_page_ocr=False,
+        )
 
     # Create pipeline options
     pipeline_options = PdfPipelineOptions(
@@ -88,16 +97,20 @@ def create_docling_config(
     return pipeline_options
 
 
-def _parse_pdf_sync(pdf_path: Path, pipeline_options: PdfPipelineOptions) -> str:
+def _parse_pdf_sync(
+    pdf_path: Path, pipeline_options: PdfPipelineOptions, return_docling_doc: bool = False
+) -> Tuple[str, Optional[DoclingDocument]]:
     """
     Synchronous PDF parsing with Docling (runs in thread pool).
 
     Args:
         pdf_path: Path to PDF file
         pipeline_options: Docling pipeline configuration
+        return_docling_doc: If True, also return the Docling document object
 
     Returns:
-        Markdown content
+        Tuple of (markdown_content, docling_document)
+        If return_docling_doc is False, docling_document will be None
 
     Raises:
         DocumentProcessingError: If parsing fails
@@ -119,7 +132,10 @@ def _parse_pdf_sync(pdf_path: Path, pipeline_options: PdfPipelineOptions) -> str
         markdown_content = result.document.export_to_markdown()
 
         logger.info(f"Successfully parsed PDF: {pdf_path.name}")
-        return markdown_content
+
+        # Return document object if requested
+        docling_doc = result.document if return_docling_doc else None
+        return markdown_content, docling_doc
 
     except Exception as e:
         logger.error(f"Failed to parse PDF {pdf_path.name}: {str(e)}")
@@ -127,8 +143,11 @@ def _parse_pdf_sync(pdf_path: Path, pipeline_options: PdfPipelineOptions) -> str
 
 
 async def parse_document_with_docling(
-    pdf_path: Path, use_ocr: bool = True, ocr_engine: str = "easyocr"
-) -> str:
+    pdf_path: Path,
+    use_ocr: bool = True,
+    ocr_engine: str = "easyocr",
+    return_docling_doc: bool = False,
+) -> Tuple[str, Optional[DoclingDocument]]:
     """
     Parse PDF document to markdown using Docling (async).
 
@@ -136,9 +155,11 @@ async def parse_document_with_docling(
         pdf_path: Path to PDF file
         use_ocr: Whether to enable OCR
         ocr_engine: OCR engine to use
+        return_docling_doc: If True, also return the Docling document object
 
     Returns:
-        Markdown content
+        Tuple of (markdown_content, docling_document)
+        If return_docling_doc is False, docling_document will be None
 
     Raises:
         DocumentProcessingError: If parsing fails
@@ -156,16 +177,16 @@ async def parse_document_with_docling(
 
     # Run synchronous parsing in thread pool
     loop = asyncio.get_event_loop()
-    markdown_content = await loop.run_in_executor(
-        _executor, _parse_pdf_sync, pdf_path, pipeline_options
+    markdown_content, docling_doc = await loop.run_in_executor(
+        _executor, _parse_pdf_sync, pdf_path, pipeline_options, return_docling_doc
     )
 
-    return markdown_content
+    return markdown_content, docling_doc
 
 
 async def parse_document_with_fallback(
-    pdf_path: Path, try_without_ocr_first: bool = True
-) -> tuple[str, Dict[str, Any]]:
+    pdf_path: Path, try_without_ocr_first: bool = True, return_docling_doc: bool = False
+) -> Tuple[str, Dict[str, Any], Optional[DoclingDocument]]:
     """
     Parse PDF with automatic OCR fallback.
 
@@ -174,10 +195,12 @@ async def parse_document_with_fallback(
     Args:
         pdf_path: Path to PDF file
         try_without_ocr_first: Whether to try without OCR first
+        return_docling_doc: If True, also return the Docling document object
 
     Returns:
-        Tuple of (markdown_content, metadata)
+        Tuple of (markdown_content, metadata, docling_document)
         metadata includes: used_ocr, ocr_engine, parse_time
+        If return_docling_doc is False, docling_document will be None
 
     Raises:
         DocumentProcessingError: If all parsing attempts fail
@@ -193,10 +216,12 @@ async def parse_document_with_fallback(
             # Try without OCR first (faster for digital PDFs)
             logger.info(f"Attempting to parse {pdf_path.name} without OCR")
             try:
-                markdown_content = await parse_document_with_docling(pdf_path, use_ocr=False)
+                markdown_content, docling_doc = await parse_document_with_docling(
+                    pdf_path, use_ocr=False, return_docling_doc=return_docling_doc
+                )
                 metadata["used_ocr"] = False
                 metadata["parse_time"] = time.time() - start_time
-                return markdown_content, metadata
+                return markdown_content, metadata, docling_doc
 
             except Exception as e:
                 logger.warning(f"Parsing without OCR failed: {str(e)}, trying with OCR")
@@ -204,14 +229,14 @@ async def parse_document_with_fallback(
 
         # Parse with OCR
         logger.info(f"Parsing {pdf_path.name} with OCR")
-        markdown_content = await parse_document_with_docling(
-            pdf_path, use_ocr=True, ocr_engine="easyocr"
+        markdown_content, docling_doc = await parse_document_with_docling(
+            pdf_path, use_ocr=True, ocr_engine="easyocr", return_docling_doc=return_docling_doc
         )
         metadata["used_ocr"] = True
         metadata["ocr_engine"] = "easyocr"
         metadata["parse_time"] = time.time() - start_time
 
-        return markdown_content, metadata
+        return markdown_content, metadata, docling_doc
 
     except Exception as e:
         logger.error(f"All parsing attempts failed for {pdf_path.name}: {str(e)}")

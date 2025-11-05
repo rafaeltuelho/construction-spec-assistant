@@ -6,16 +6,30 @@ This module provides chunking functionality that respects:
 - Sentence boundaries (semantic coherence)
 - Section context (preserves hierarchy)
 - Overlap between chunks (for better retrieval)
+- Table preservation (using Docling's HybridChunker)
 """
 
 import re
 import hashlib
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from app.core.sectionizer import Section
 from app.utils.token_counter import count_tokens, split_text_by_tokens
 from app.utils.logging import get_logger
+
+# Docling imports for HybridChunker
+import tiktoken
+from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
+from docling.chunking import HybridChunker
+from docling_core.transforms.chunker.hierarchical_chunker import (
+    ChunkingDocSerializer,
+    ChunkingSerializerProvider,
+)
+from docling_core.transforms.serializer.markdown import MarkdownTableSerializer
+
+if TYPE_CHECKING:
+    from docling_core.types.doc import DoclingDocument
 
 logger = get_logger(__name__)
 
@@ -314,4 +328,112 @@ def simple_chunk_markdown(
         )
 
     logger.info(f"Created {len(section_chunks)} simple chunks")
+    return section_chunks
+
+
+# ============================================================================
+# HybridChunker Support (for submittal documents with tables)
+# ============================================================================
+
+
+class MDTableSerializerProvider(ChunkingSerializerProvider):
+    """
+    Custom serializer provider that uses MarkdownTableSerializer.
+
+    This ensures tables are serialized to Markdown format instead of
+    the default triplet notation, preserving table structure for better
+    readability and LLM processing.
+    """
+
+    def get_serializer(self, doc: "DoclingDocument"):
+        """Get serializer with Markdown table support."""
+        return ChunkingDocSerializer(doc=doc, table_serializer=MarkdownTableSerializer())
+
+
+def hybrid_chunk_document(
+    docling_doc: "DoclingDocument",
+    max_tokens: int = 512,
+    merge_peers: bool = True,
+    model: str = "gpt-4o",
+) -> List[SectionChunk]:
+    """
+    Chunk a Docling document using HybridChunker with table preservation.
+
+    This function uses Docling's HybridChunker which:
+    - Preserves table structure in Markdown format
+    - Respects document hierarchy
+    - Handles complex layouts intelligently
+    - Merges peer sections when beneficial
+
+    Args:
+        docling_doc: Docling DoclingDocument object
+        max_tokens: Maximum tokens per chunk
+        merge_peers: Whether to merge peer sections
+        model: Model for token counting (default: gpt-4o)
+
+    Returns:
+        List of SectionChunk objects with preserved table structure
+
+    Note:
+        This is the preferred chunking method for submittal documents
+        and product descriptions that contain tables.
+    """
+    logger.info(f"Hybrid chunking document with max_tokens={max_tokens}, merge_peers={merge_peers}")
+
+    # Create OpenAI tokenizer
+    tokenizer = OpenAITokenizer(
+        tokenizer=tiktoken.encoding_for_model(model),
+        max_tokens=128 * 1024,  # context window length required for OpenAI tokenizers
+    )
+
+    # Create HybridChunker with Markdown table serializer
+    chunker = HybridChunker(
+        tokenizer=tokenizer,
+        max_tokens=max_tokens,
+        merge_peers=merge_peers,
+        serializer_provider=MDTableSerializerProvider(),
+    )
+
+    # Chunk the document
+    chunk_iter = chunker.chunk(dl_doc=docling_doc)
+    docling_chunks = list(chunk_iter)
+
+    logger.info(f"HybridChunker produced {len(docling_chunks)} chunks")
+
+    # Convert Docling chunks to SectionChunk objects
+    section_chunks = []
+    for idx, docling_chunk in enumerate(docling_chunks):
+        # Extract chunk text
+        chunk_text = docling_chunk.text
+
+        # Generate chunk ID
+        chunk_id = hashlib.md5(f"{chunk_text}_{idx}".encode()).hexdigest()[:12]
+
+        # Extract metadata if available
+        # Docling chunks have meta attribute with path information
+        section_title = "Document Content"
+        if hasattr(docling_chunk, "meta") and docling_chunk.meta:
+            # Try to get heading path from metadata
+            if hasattr(docling_chunk.meta, "headings") and docling_chunk.meta.headings:
+                section_title = " > ".join(docling_chunk.meta.headings)
+            elif hasattr(docling_chunk.meta, "doc_items") and docling_chunk.meta.doc_items:
+                # Use first doc item as title
+                first_item = docling_chunk.meta.doc_items[0]
+                if hasattr(first_item, "label"):
+                    section_title = first_item.label
+
+        section_chunks.append(
+            SectionChunk(
+                chunk_id=chunk_id,
+                section_title=section_title,
+                section_number=None,
+                section_level=0,  # Flat structure for hybrid chunks
+                content=chunk_text,
+                token_count=count_tokens(chunk_text, model),
+                chunk_index=idx,
+                total_chunks=len(docling_chunks),
+            )
+        )
+
+    logger.info(f"Created {len(section_chunks)} hybrid chunks with table preservation")
     return section_chunks
