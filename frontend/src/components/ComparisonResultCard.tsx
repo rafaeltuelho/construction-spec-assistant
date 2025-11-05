@@ -178,7 +178,7 @@ export function ComparisonResultCard({
   const formatSpecFact = () => {
     const { entity, attribute, value, op } = result.spec_fact;
 
-    // Helper to extract non-null values from an object
+    // Helper to extract non-null values from an object (for entity only)
     const extractNonNull = (obj: unknown): string => {
       if (!obj || typeof obj !== 'object') return String(obj || 'N/A');
 
@@ -195,9 +195,30 @@ export function ComparisonResultCard({
       return values.length > 0 ? values.join(' ') : 'N/A';
     };
 
+    // Entity: use extractNonNull to get all non-null values
     const entityStr = extractNonNull(entity);
-    const attributeStr = extractNonNull(attribute);
-    const valueStr = extractNonNull(value);
+
+    // Attribute: use only the 'raw' field
+    const attributeStr = attribute?.raw || 'N/A';
+
+    // Value: format based on type
+    let valueStr = value?.raw || 'N/A';
+
+    // Only append type information if it's NOT 'text' or 'string'
+    if (value?.type && value.type !== 'text' && value.type !== 'string') {
+      valueStr = `${valueStr} (type: ${value.type})`;
+    }
+
+    // Add unit if present
+    if (value?.unit) {
+      valueStr = `${valueStr} ${value.unit}`;
+    }
+
+    // Add range if present
+    if (value?.min !== null && value?.min !== undefined && value?.max !== null && value?.max !== undefined) {
+      valueStr = `${valueStr} [${value.min}-${value.max}]`;
+    }
+
     const opStr = op || '=';
 
     return `${entityStr} - ${attributeStr}: ${opStr} ${valueStr}`;
@@ -368,7 +389,7 @@ export function ComparisonResultCard({
             className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
           >
             <h3 className="text-sm font-semibold text-gray-700">
-              Contextual Findings ({result.retrieved_chunks.length} chunks)
+              Contextual Findings ({result.retrieved_chunks.length} text chunks)
             </h3>
             <svg
               className={`h-4 w-4 transform transition-transform ${chunksExpanded ? 'rotate-180' : ''}`}
@@ -390,7 +411,7 @@ export function ComparisonResultCard({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium text-gray-600">
-                        Chunk {idx + 1}
+                        Text Chunk {idx + 1}
                       </span>
                       {/* Page number badge - will display when backend adds page_start/page_end */}
                       {formatPageNumber(chunk.page_start, chunk.page_end) && (
@@ -400,7 +421,7 @@ export function ComparisonResultCard({
                       )}
                     </div>
                     <span className="text-xs text-gray-500">
-                      Similarity: {chunk.relevance_score.toFixed(3)}
+                      Relevance Score: {chunk.relevance_score.toFixed(3)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-700 whitespace-pre-wrap">
