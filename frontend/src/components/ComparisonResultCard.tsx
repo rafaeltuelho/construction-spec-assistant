@@ -255,7 +255,7 @@ export function ComparisonResultCard({
             }}
             className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
           >
-            <h3 className="text-sm font-semibold text-gray-700">Document Context</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Spec Context</h3>
             <svg
               className={`h-4 w-4 transform transition-transform ${contextExpanded ? 'rotate-180' : ''}`}
               fill="currentColor"
