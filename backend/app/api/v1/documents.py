@@ -355,16 +355,12 @@ async def search_chunks(request: ChunkSearchRequest, qdrant=Depends(get_qdrant))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/{document_id}/status")
+@router.get("/{document_id}/status", response_model=DocumentResponse)
 async def get_document_status(document_id: str, mongodb=Depends(get_mongodb)):
-    """Get document processing status."""
+    """Get document processing status with full details including processing statistics."""
     try:
         document = await get_document(mongodb, document_id)
-        return {
-            "document_id": document.document_id,
-            "status": document.status,
-            "errors": document.errors,
-        }
+        return DocumentResponse(**document.model_dump())
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Document not found")
     except Exception as e:

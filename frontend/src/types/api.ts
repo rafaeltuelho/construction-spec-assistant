@@ -52,14 +52,30 @@ export interface ProcessingStats {
 
 export interface DocumentStatusResponse {
   document_id: string;
-  filename: string;
-  document_type: DocumentType;
+  title: string;
   status: DocumentStatus;
-  progress?: DocumentProgress;
-  created_at: string;
-  completed_at?: string;
-  metadata?: DocumentMetadata;
+  metadata: DocumentMetadata & {
+    document_type: DocumentType;
+    filename: string;
+    file_size: number;
+    mime_type: string;
+    upload_timestamp: string;
+    processing_timestamp?: string;
+    used_ocr?: boolean;
+    ocr_engine?: string;
+    parse_time?: number;
+  };
   processing_stats?: ProcessingStats;
+  progress?: DocumentProgress;
+  errors?: Array<{
+    error_type: string;
+    message: string;
+    timestamp: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+  processing_job_id?: string;
+  estimated_duration_seconds?: number;
 }
 
 // Fact Extraction
