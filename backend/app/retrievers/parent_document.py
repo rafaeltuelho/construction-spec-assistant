@@ -108,7 +108,11 @@ class ParentDocumentRetriever(BaseRetriever):
 
             # Create embeddings and points for child chunks
             for i, child_doc in enumerate(child_docs):
-                child_id = f"{parent_id}_child_{i}"
+                # Create a valid UUID for child chunk
+                # Use UUID5 with parent_id and child index for deterministic IDs
+                child_id_str = f"{parent_id}_child_{i}"
+                namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # DNS namespace
+                child_id = str(uuid.uuid5(namespace, child_id_str))
 
                 # Generate embedding
                 embedding = list(self.embedding_model.embed([child_doc.page_content]))[0]

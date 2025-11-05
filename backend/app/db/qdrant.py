@@ -288,3 +288,59 @@ def get_collection_info(
     except Exception as e:
         logger.error(f"Failed to get collection info: {str(e)}")
         return {}
+
+
+def delete_collection(client: QdrantClient, collection_name: str) -> bool:
+    """
+    Delete a Qdrant collection.
+
+    Args:
+        client: Qdrant client
+        collection_name: Name of collection to delete
+
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    try:
+        # Check if collection exists
+        collections = client.get_collections().collections
+        collection_names = [c.name for c in collections]
+
+        if collection_name not in collection_names:
+            logger.debug(f"Collection does not exist: {collection_name}")
+            return False
+
+        # Delete collection
+        client.delete_collection(collection_name=collection_name)
+        logger.info(f"Deleted collection: {collection_name}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to delete collection {collection_name}: {str(e)}")
+        return False
+
+
+def cleanup_parent_document_collections(client: QdrantClient, document_id: str) -> int:
+    """
+    Clean up ParentDocument collections for a specific document.
+
+    ParentDocument retrievers create temporary collections with names like:
+    construction_docs_parent_{document_id}
+
+    This function deletes these collections to free up storage.
+
+    Args:
+        client: Qdrant client
+        document_id: Document ID to clean up collections for
+
+    Returns:
+        Number of collections deleted
+    """
+    try:
+        collection_name = f"construction_docs_parent_{document_id}"
+        deleted = delete_collection(client, collection_name)
+        return 1 if deleted else 0
+
+    except Exception as e:
+        logger.error(f"Failed to cleanup parent document collections: {str(e)}")
+        return 0

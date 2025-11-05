@@ -18,6 +18,11 @@ from app.retrievers.dense import DenseRetriever
 from app.retrievers.sparse import SparseRetriever
 from app.retrievers.parent_document import ParentDocumentRetriever
 from app.retrievers.ensemble import EnsembleRetriever
+from app.retrievers.cache import (
+    RetrieverCache,
+    get_retriever_cache,
+    clear_retriever_cache,
+)
 
 __all__ = [
     "BaseRetriever",
@@ -28,4 +33,7 @@ __all__ = [
     "SparseRetriever",
     "ParentDocumentRetriever",
     "EnsembleRetriever",
+    "RetrieverCache",
+    "get_retriever_cache",
+    "clear_retriever_cache",
 ]

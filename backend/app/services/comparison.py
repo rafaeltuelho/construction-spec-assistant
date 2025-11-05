@@ -18,9 +18,11 @@ from app.retrievers import (
     ParentDocumentRetriever,
     EnsembleRetriever,
     build_query_terms_from_fact,
+    get_retriever_cache,
 )
 from app.agents.comparison_graph import create_comparison_graph, ComparisonState
 from app.db.mongodb import get_document_chunks
+from app.db.qdrant import cleanup_parent_document_collections
 from app.utils.exceptions import NotFoundError, ComparisonError
 
 logger = logging.getLogger(__name__)
@@ -200,7 +202,7 @@ async def _create_retriever(
     strategy: str, submittal_document_id: str, db: AsyncIOMotorDatabase, qdrant_client: QdrantClient
 ):
     """
-    Create retriever based on strategy.
+    Create retriever based on strategy with caching.
 
     Args:
         strategy: "dense", "sparse", "parent_document", or "ensemble"
@@ -215,6 +217,17 @@ async def _create_retriever(
         NotFoundError: If document not found
         ValueError: If invalid strategy
     """
+    # Get cache
+    cache = get_retriever_cache()
+
+    # Check cache for sparse and ensemble retrievers
+    cache_key = f"{strategy}_{submittal_document_id}"
+    if strategy in ["sparse", "ensemble"]:
+        cached_retriever = cache.get(cache_key)
+        if cached_retriever is not None:
+            logger.info(f"Using cached retriever: {cache_key}")
+            return cached_retriever
+
     # Get document chunks from MongoDB
     chunks = await get_document_chunks(db, submittal_document_id)
 
@@ -244,11 +257,19 @@ async def _create_retriever(
 
     # Create retriever based on strategy
     if strategy == "dense":
+        # Dense retriever uses pre-indexed Qdrant collection (no caching needed)
         return DenseRetriever(qdrant_client=qdrant_client, collection_name="construction_docs")
+
     elif strategy == "sparse":
-        return SparseRetriever(corpus=documents)
+        # Create and cache sparse retriever
+        retriever = SparseRetriever(corpus=documents)
+        cache.set(cache_key, retriever)
+        logger.info(f"Cached sparse retriever: {cache_key}")
+        return retriever
+
     elif strategy == "parent_document":
         # Use ParentDocument retriever with small-to-big strategy
+        # Note: ParentDocument creates its own Qdrant collection
         return ParentDocumentRetriever(
             qdrant_client=qdrant_client,
             parent_documents=documents,
@@ -256,6 +277,7 @@ async def _create_retriever(
             child_chunk_size=750,
             child_chunk_overlap=75,
         )
+
     elif strategy == "ensemble":
         # Use ParentDocument + BM25 ensemble (optimal approach from notebook)
         parent_retriever = ParentDocumentRetriever(
@@ -266,12 +288,20 @@ async def _create_retriever(
             child_chunk_overlap=75,
         )
         sparse_retriever = SparseRetriever(corpus=documents)
-        return EnsembleRetriever(
+
+        # Create ensemble retriever
+        retriever = EnsembleRetriever(
             semantic_retriever=parent_retriever,
             sparse_retriever=sparse_retriever,
             semantic_weight=0.5,
             sparse_weight=0.5,
         )
+
+        # Cache the ensemble retriever
+        cache.set(cache_key, retriever)
+        logger.info(f"Cached ensemble retriever: {cache_key}")
+        return retriever
+
     else:
         raise ValueError(f"Invalid retrieval strategy: {strategy}")
 
@@ -449,3 +479,57 @@ async def compare_document_to_submittal(
     except Exception as e:
         logger.error(f"Document comparison failed: {str(e)}", exc_info=True)
         raise ComparisonError(f"Document comparison failed: {str(e)}")
+
+
+async def cleanup_retriever_resources(
+    qdrant_client: QdrantClient, submittal_document_id: str
+) -> Dict[str, int]:
+    """
+    Clean up retriever resources for a document.
+
+    This function:
+    1. Deletes ParentDocument Qdrant collections
+    2. Invalidates retriever cache entries
+
+    Should be called when:
+    - A document is deleted
+    - A document is updated (to force re-indexing)
+    - Periodic cleanup of old resources
+
+    Args:
+        qdrant_client: Qdrant client instance
+        submittal_document_id: Document ID to clean up
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    try:
+        logger.info(f"Cleaning up retriever resources for document {submittal_document_id}")
+
+        # Clean up ParentDocument collections
+        collections_deleted = cleanup_parent_document_collections(
+            qdrant_client, submittal_document_id
+        )
+
+        # Invalidate cache entries
+        cache = get_retriever_cache()
+        cache.invalidate(f"sparse_{submittal_document_id}")
+        cache.invalidate(f"ensemble_{submittal_document_id}")
+        cache.invalidate(f"parent_document_{submittal_document_id}")
+
+        logger.info(
+            f"Cleanup complete: {collections_deleted} collections deleted, cache invalidated"
+        )
+
+        return {
+            "collections_deleted": collections_deleted,
+            "cache_invalidated": True,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to cleanup retriever resources: {str(e)}", exc_info=True)
+        return {
+            "collections_deleted": 0,
+            "cache_invalidated": False,
+            "error": str(e),
+        }
