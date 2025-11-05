@@ -48,6 +48,9 @@ export function ComparisonResultCard({
   const [contextExpanded, setContextExpanded] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
 
+  // Contextual Findings (chunks) expansion state
+  const [chunksExpanded, setChunksExpanded] = useState(false);
+
   // Update state when initial values change (e.g., when navigating between tabs)
   useEffect(() => {
     setSelectedAnnotation(initialAnnotation);
@@ -250,53 +253,7 @@ export function ComparisonResultCard({
         <p className="text-sm text-gray-900">{formatSpecFact()}</p>
       </div>
 
-      {/* Submittal Evidence */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Submittal Evidence</h3>
-        <p className="text-sm text-gray-700 italic bg-gray-50 p-3 rounded border border-gray-200">
-          "{result.submittal_evidence}"
-        </p>
-      </div>
-
-      {/* Reasoning */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Analysis</h3>
-        <p className="text-sm text-gray-700">{result.reasoning}</p>
-      </div>
-
-      {/* Retrieved Chunks Section */}
-      {result.retrieved_chunks && result.retrieved_chunks.length > 0 && (
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Retrieved Context Chunks</h3>
-          <div className="space-y-2">
-            {result.retrieved_chunks.map((chunk, idx) => (
-              <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-gray-600">
-                      Chunk {idx + 1}
-                    </span>
-                    {/* Page number badge */}
-                    {formatPageNumber(chunk.page_start, chunk.page_end) && (
-                      <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">
-                        {formatPageNumber(chunk.page_start, chunk.page_end)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    Score: {(chunk.relevance_score * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 whitespace-pre-wrap line-clamp-3">
-                  {chunk.content}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Document Context Section */}
+      {/* Spec Provenance Section - MOVED BEFORE Submittal Evidence */}
       {result.spec_fact.fact_id && (
         <div className="mb-4 border-t border-gray-200 pt-4">
           <button
@@ -308,7 +265,7 @@ export function ComparisonResultCard({
             }}
             className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
           >
-            <h3 className="text-sm font-semibold text-gray-700">Spec Context</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Spec Provenance</h3>
             <svg
               className={`h-4 w-4 transform transition-transform ${contextExpanded ? 'rotate-180' : ''}`}
               fill="currentColor"
@@ -384,6 +341,73 @@ export function ComparisonResultCard({
               ) : (
                 <p className="text-sm text-gray-500">Context information not available</p>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Submittal Evidence */}
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Submittal Evidence</h3>
+        <p className="text-sm text-gray-700 italic bg-gray-50 p-3 rounded border border-gray-200">
+          "{result.submittal_evidence}"
+        </p>
+      </div>
+
+      {/* Reasoning */}
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Analysis</h3>
+        <p className="text-sm text-gray-700">{result.reasoning}</p>
+      </div>
+
+      {/* Contextual Findings Section - Collapsible */}
+      {result.retrieved_chunks && result.retrieved_chunks.length > 0 && (
+        <div className="mb-4 border-t border-gray-200 pt-4">
+          <button
+            onClick={() => setChunksExpanded(!chunksExpanded)}
+            className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
+          >
+            <h3 className="text-sm font-semibold text-gray-700">
+              Contextual Findings ({result.retrieved_chunks.length} chunks)
+            </h3>
+            <svg
+              className={`h-4 w-4 transform transition-transform ${chunksExpanded ? 'rotate-180' : ''}`}
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+
+          {chunksExpanded && (
+            <div className="mt-3 space-y-2">
+              {result.retrieved_chunks.map((chunk, idx) => (
+                <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-600">
+                        Chunk {idx + 1}
+                      </span>
+                      {/* Page number badge - will display when backend adds page_start/page_end */}
+                      {formatPageNumber(chunk.page_start, chunk.page_end) && (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">
+                          {formatPageNumber(chunk.page_start, chunk.page_end)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      Similarity: {chunk.relevance_score.toFixed(3)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap">
+                    {chunk.content}
+                  </p>
+                </div>
+              ))}
             </div>
           )}
         </div>
