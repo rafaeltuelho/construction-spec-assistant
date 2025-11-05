@@ -285,7 +285,10 @@ async def process_document(
                 await update_processing_progress(mongodb, document_id, 40, "chunking")
 
                 chunks = hybrid_chunk_document(
-                    docling_doc, max_tokens=max_chunk_tokens, merge_peers=True
+                    docling_doc,
+                    document_id=document_id,
+                    max_tokens=max_chunk_tokens,
+                    merge_peers=True,
                 )
 
                 chunk_stats = get_chunk_statistics(chunks)
@@ -299,6 +302,7 @@ async def process_document(
 
                 chunks = simple_chunk_markdown(
                     markdown_content,
+                    document_id=document_id,
                     max_tokens=max_chunk_tokens,
                     overlap_tokens=chunk_overlap_tokens,
                 )
@@ -308,9 +312,25 @@ async def process_document(
 
             await update_processing_progress(mongodb, document_id, 70, "chunking")
 
-            # No sections to store for non-CSI documents
-            section_counts = {}
-            document_sections = []
+            # Create a default section for non-CSI documents
+            # This ensures Facts can reference a valid section_id
+            section_id = f"sec-{document_id}-content"
+            default_section = DocumentSection(
+                section_id=section_id,
+                document_id=document_id,
+                title="Document Content",
+                level=0,
+                section_number=None,
+                content=markdown_content,
+                order_index=0,
+                header_path=["Document Content"],
+                page_start=None,
+                page_end=None,
+            )
+            document_sections = [default_section]
+            await store_document_sections(mongodb, document_sections)
+
+            section_counts = {"total_sections": 1}
 
         # Step 5: Store chunks in MongoDB
         logger.info(f"[{document_id}] Step 5: Storing chunks")
@@ -321,7 +341,7 @@ async def process_document(
             doc_chunk = DocumentChunk(
                 chunk_id=chunk.chunk_id,
                 document_id=document_id,
-                section_id=f"{document_id}_section_0",  # Simplified
+                section_id=chunk.section_id,  # Use section_id from chunk
                 section_title=chunk.section_title,
                 section_number=chunk.section_number,
                 section_level=chunk.section_level,

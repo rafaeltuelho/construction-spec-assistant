@@ -38,6 +38,7 @@ class SectionChunk(BaseModel):
     """Chunk of text from a document section."""
 
     chunk_id: str = Field(..., description="Unique chunk identifier")
+    section_id: str = Field(..., description="Parent section ID (matches Section.section_id)")
     section_title: str = Field(..., description="Parent section title")
     section_number: Optional[str] = Field(None, description="Section number")
     section_level: int = Field(..., description="Section level")
@@ -167,6 +168,7 @@ def chunk_section(
     for idx, chunk_text in enumerate(text_chunks):
         chunk = SectionChunk(
             chunk_id=generate_chunk_id(section.title, idx, chunk_text),
+            section_id=section.section_id,  # Use actual section ID from Section object
             section_title=section.title,
             section_number=section.section_number,
             section_level=section.level,
@@ -239,7 +241,11 @@ def get_chunk_statistics(chunks: List[SectionChunk]) -> dict:
 
 
 def simple_chunk_markdown(
-    markdown_text: str, max_tokens: int = 500, overlap_tokens: int = 50, model: str = "gpt-4"
+    markdown_text: str,
+    document_id: str,
+    max_tokens: int = 500,
+    overlap_tokens: int = 50,
+    model: str = "gpt-4",
 ) -> List[SectionChunk]:
     """
     Simple chunking for non-CSI documents (submittals, product descriptions, drawings).
@@ -253,6 +259,7 @@ def simple_chunk_markdown(
 
     Args:
         markdown_text: Raw markdown text to chunk
+        document_id: Document identifier (used to generate section_id)
         max_tokens: Maximum tokens per chunk
         overlap_tokens: Tokens to overlap between chunks
         model: Model for token counting
@@ -320,6 +327,9 @@ def simple_chunk_markdown(
         chunks.append("\n\n".join(current_chunk_text))
 
     # Convert to SectionChunk objects
+    # Generate a single section_id for all chunks in non-CSI documents
+    section_id = f"sec-{document_id}-content"
+
     section_chunks = []
     for idx, chunk_text in enumerate(chunks):
         chunk_id = hashlib.md5(f"{chunk_text}_{idx}".encode()).hexdigest()[:12]
@@ -327,6 +337,7 @@ def simple_chunk_markdown(
         section_chunks.append(
             SectionChunk(
                 chunk_id=chunk_id,
+                section_id=section_id,  # Use generated section_id
                 section_title="Document Content",  # Generic title for non-CSI docs
                 section_number=None,
                 section_level=0,  # Flat structure
@@ -362,6 +373,7 @@ class MDTableSerializerProvider(ChunkingSerializerProvider):
 
 def hybrid_chunk_document(
     docling_doc: "DoclingDocument",
+    document_id: str,
     max_tokens: int = 512,
     merge_peers: bool = True,
     model: str = "gpt-4o",
@@ -377,6 +389,7 @@ def hybrid_chunk_document(
 
     Args:
         docling_doc: Docling DoclingDocument object
+        document_id: Document identifier (used to generate section_id)
         max_tokens: Maximum tokens per chunk
         merge_peers: Whether to merge peer sections
         model: Model for token counting (default: gpt-4o)
@@ -409,6 +422,9 @@ def hybrid_chunk_document(
     docling_chunks = list(chunk_iter)
 
     logger.info(f"HybridChunker produced {len(docling_chunks)} chunks")
+
+    # Generate a single section_id for all chunks in non-CSI documents
+    section_id = f"sec-{document_id}-content"
 
     # Convert Docling chunks to SectionChunk objects
     section_chunks = []
@@ -451,6 +467,7 @@ def hybrid_chunk_document(
         section_chunks.append(
             SectionChunk(
                 chunk_id=chunk_id,
+                section_id=section_id,  # Use generated section_id
                 section_title=section_title,
                 section_number=None,
                 section_level=0,  # Flat structure for hybrid chunks
