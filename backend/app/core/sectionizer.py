@@ -11,6 +11,7 @@ following the Construction Specifications Institute (CSI) format:
 """
 
 import re
+import uuid
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,19 @@ class Section(BaseModel):
     section_number: Optional[str] = Field(
         None, description="Section number (e.g., '1.1', 'A', '1')"
     )
+    # New fields for notebook compatibility
+    section_id: Optional[str] = Field(
+        None, description="Unique section identifier (UUID-based)"
+    )
+    header_path: List[str] = Field(
+        default_factory=list, description="Full hierarchical path from root to this section"
+    )
+    page_start: Optional[int] = Field(
+        None, description="Starting page number (0-indexed, from Docling provenance)"
+    )
+    page_end: Optional[int] = Field(
+        None, description="Ending page number (0-indexed, from Docling provenance)"
+    )
 
     class Config:
         arbitrary_types_allowed = True
@@ -42,6 +56,43 @@ CSI_PATTERNS = [
     (4, re.compile(r"^(\d+)[\.)]\s+(.+)$")),
     (5, re.compile(r"^([a-z])[\.)]\s+(.+)$")),
 ]
+
+
+def _slugify(parts: List[str]) -> str:
+    """
+    Convert header path parts to a URL-friendly slug.
+
+    Example: ["PART 1 - GENERAL", "1.1 SUMMARY"] -> "part-1-general-1-1-summary"
+    """
+    s = "-".join(parts)
+    s = s.lower()
+    s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
+    return s
+
+
+def _generate_section_id(header_path: List[str]) -> str:
+    """
+    Generate unique section ID from header path.
+
+    Format: sec-{slugified-path}-{uuid8}
+    Example: sec-part-1-general-1-1-summary-a3f4b2c1
+    """
+    slug = _slugify(header_path)
+    short_uuid = uuid.uuid4().hex[:8]
+    return f"sec-{slug}-{short_uuid}"
+
+
+def _build_header_path(section_stack: List[tuple[int, str]]) -> List[str]:
+    """
+    Build header path from section stack.
+
+    Args:
+        section_stack: Stack of (level, header) tuples
+
+    Returns:
+        List of header strings from root to current section
+    """
+    return [header for _, header in section_stack]
 
 
 def _parse_line(line: str) -> Optional[tuple[int, str, str]]:
@@ -58,6 +109,7 @@ def _build_hierarchy(lines: List[str]) -> List[Section]:
     """Build hierarchical section structure from lines."""
     root_sections: List[Section] = []
     section_stack: List[tuple[int, Section]] = []
+    header_stack: List[tuple[int, str]] = []  # Track headers for path building
     current_content: List[str] = []
 
     for line in lines:
@@ -73,8 +125,25 @@ def _build_hierarchy(lines: List[str]) -> List[Section]:
             elif current_content:
                 current_content = []
 
+            # Update header stack for path tracking
+            while header_stack and header_stack[-1][0] >= level:
+                header_stack.pop()
+            header_stack.append((level, title))
+
+            # Build header path and generate section ID
+            header_path = _build_header_path(header_stack)
+            section_id = _generate_section_id(header_path)
+
             new_section = Section(
-                title=title, level=level, section_number=section_number, content="", subsections=[]
+                title=title,
+                level=level,
+                section_number=section_number,
+                content="",
+                subsections=[],
+                section_id=section_id,
+                header_path=header_path,
+                page_start=None,  # Will be populated if page info available
+                page_end=None,
             )
 
             while section_stack and section_stack[-1][0] >= level:

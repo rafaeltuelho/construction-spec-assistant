@@ -215,14 +215,20 @@ async def process_document(
 
             document_sections = []
             for idx, section in enumerate(flat_sections):
+                # Use section_id from sectionizer if available, otherwise generate one
+                section_id = section.section_id if section.section_id else f"{document_id}_section_{idx}"
+
                 doc_section = DocumentSection(
-                    section_id=f"{document_id}_section_{idx}",
+                    section_id=section_id,
                     document_id=document_id,
                     title=section.title,
                     level=section.level,
                     section_number=section.section_number,
                     content=section.content,
                     order_index=idx,
+                    header_path=section.header_path,
+                    page_start=section.page_start,
+                    page_end=section.page_end,
                 )
                 document_sections.append(doc_section)
 

@@ -105,6 +105,16 @@ class DocumentSection(BaseModel):
     content: str = Field(default="")
     parent_section_id: Optional[str] = None
     order_index: int = Field(..., description="Order in document")
+    # New fields for enhanced section tracking
+    header_path: List[str] = Field(
+        default_factory=list, description="Full hierarchical path from root to this section"
+    )
+    page_start: Optional[int] = Field(
+        None, description="Starting page number (0-indexed, from Docling provenance)"
+    )
+    page_end: Optional[int] = Field(
+        None, description="Ending page number (0-indexed, from Docling provenance)"
+    )
 
 
 class DocumentChunk(BaseModel):
