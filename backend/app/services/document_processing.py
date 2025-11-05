@@ -216,7 +216,9 @@ async def process_document(
             document_sections = []
             for idx, section in enumerate(flat_sections):
                 # Use section_id from sectionizer if available, otherwise generate one
-                section_id = section.section_id if section.section_id else f"{document_id}_section_{idx}"
+                section_id = (
+                    section.section_id if section.section_id else f"{document_id}_section_{idx}"
+                )
 
                 doc_section = DocumentSection(
                     section_id=section_id,
