@@ -5,8 +5,9 @@ This module orchestrates the comparison workflow using retrievers and LangGraph 
 """
 
 import uuid
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from langchain_openai import ChatOpenAI
+from langchain_together import ChatTogether
 from qdrant_client import QdrantClient
 from motor.motor_asyncio import AsyncIOMotorDatabase
 import logging
@@ -29,7 +30,7 @@ async def compare_spec_to_submittal(
     submittal_document_id: str,
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
-    llm_client: ChatOpenAI,
+    llm_client: Union[ChatOpenAI, ChatTogether],
     retrieval_strategy: str = "ensemble",
     top_k: int = 5,
 ) -> Dict[str, Any]:
@@ -133,7 +134,7 @@ async def compare_batch(
     submittal_document_id: str,
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
-    llm_client: ChatOpenAI,
+    llm_client: Union[ChatOpenAI, ChatTogether],
     retrieval_strategy: str = "ensemble",
     top_k: int = 5,
 ) -> List[Dict[str, Any]]:
@@ -262,7 +263,7 @@ async def compare_document_to_submittal(
     submittal_document_id: str,
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
-    llm_client: ChatOpenAI,
+    llm_client: Union[ChatOpenAI, ChatTogether],
     retrieval_strategy: str = "ensemble",
     top_k: int = 5,
     limit: int = 100,

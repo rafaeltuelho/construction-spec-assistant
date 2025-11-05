@@ -4,11 +4,12 @@ FastAPI dependency injection for database clients and services.
 This module provides dependency functions that can be injected into API endpoints.
 """
 
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Union
 from fastapi import Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
 from langchain_openai import ChatOpenAI
+from langchain_together import ChatTogether
 
 from app.config import settings
 from app.utils.logging import get_logger
@@ -16,10 +17,13 @@ from app.utils.exceptions import DatabaseConnectionError, ConfigurationError
 
 logger = get_logger(__name__)
 
+# Type alias for LLM clients
+LLMClient = Union[ChatOpenAI, ChatTogether]
+
 # Global client instances (initialized on startup)
 _mongodb_client: Optional[AsyncIOMotorClient] = None
 _qdrant_client: Optional[QdrantClient] = None
-_openai_client: Optional[ChatOpenAI] = None
+_llm_client: Optional[LLMClient] = None
 
 
 # Getter functions for health checks
@@ -35,9 +39,14 @@ def get_qdrant_client_instance() -> Optional[QdrantClient]:
     return _qdrant_client
 
 
-def get_openai_client_instance() -> Optional[ChatOpenAI]:
-    """Get the OpenAI client instance (for health checks)."""
-    return _openai_client
+def get_llm_client_instance() -> Optional[LLMClient]:
+    """Get the LLM client instance (for health checks)."""
+    return _llm_client
+
+
+def get_openai_client_instance() -> Optional[LLMClient]:
+    """Get the LLM client instance (for health checks). Alias for backward compatibility."""
+    return _llm_client
 
 
 # MongoDB Dependencies
@@ -228,78 +237,115 @@ async def close_qdrant() -> None:
 # LLM Dependencies
 
 
-async def get_openai_client() -> ChatOpenAI:
+async def get_llm_client() -> LLMClient:
     """
-    Get OpenAI LLM client instance.
+    Get LLM client instance (OpenAI, Together.ai, etc.).
 
     Returns:
-        OpenAI client
+        LLM client (ChatOpenAI or ChatTogether)
 
     Raises:
-        ConfigurationError: If OpenAI client is not initialized
+        ConfigurationError: If LLM client is not initialized
     """
-    global _openai_client
+    global _llm_client
 
-    if _openai_client is None:
-        raise ConfigurationError("OpenAI client not initialized. Call init_openai() on startup.")
+    if _llm_client is None:
+        raise ConfigurationError(
+            f"LLM client not initialized. Call init_llm() on startup. "
+            f"Current provider: {settings.llm_provider}"
+        )
 
-    return _openai_client
+    return _llm_client
 
 
-# Convenience alias for API endpoints
-def get_llm_client() -> ChatOpenAI:
+async def get_openai_client() -> LLMClient:
     """
-    Convenience function to get OpenAI LLM client directly (synchronous).
+    Get LLM client instance. Alias for backward compatibility.
 
     Returns:
-        OpenAI client
+        LLM client
 
     Raises:
-        ConfigurationError: If OpenAI client is not initialized
+        ConfigurationError: If LLM client is not initialized
     """
-    global _openai_client
+    return await get_llm_client()
 
-    if _openai_client is None:
-        raise ConfigurationError("OpenAI client not initialized. Call init_openai() on startup.")
 
-    return _openai_client
+async def init_llm() -> None:
+    """
+    Initialize LLM client based on configured provider.
+
+    Should be called during application startup.
+    Note: This is optional - the application will start even if LLM is not configured.
+    """
+    global _llm_client
+
+    provider = settings.llm_provider.lower()
+    logger.info(f"Initializing LLM client with provider: {provider}")
+
+    try:
+        if provider == "openai":
+            if not settings.openai_api_key:
+                logger.warning("OPENAI_API_KEY not set in environment")
+                logger.warning(
+                    "Application will continue without OpenAI. LLM features will not be available."
+                )
+                _llm_client = None
+                return
+
+            logger.info(f"Initializing OpenAI client with model {settings.openai_model}")
+
+            _llm_client = ChatOpenAI(
+                api_key=settings.openai_api_key,
+                model=settings.openai_model,
+                temperature=settings.openai_temperature,
+                max_tokens=settings.openai_max_tokens,
+            )
+
+            logger.info("OpenAI client initialized successfully")
+
+        elif provider == "together":
+            if not settings.together_api_key:
+                logger.warning("TOGETHER_API_KEY not set in environment")
+                logger.warning(
+                    "Application will continue without Together.ai. LLM features will not be available."
+                )
+                _llm_client = None
+                return
+
+            logger.info(f"Initializing Together.ai client with model {settings.together_model}")
+
+            _llm_client = ChatTogether(
+                api_key=settings.together_api_key,
+                model=settings.together_model,
+                temperature=settings.together_temperature,
+                max_tokens=settings.together_max_tokens,
+            )
+
+            logger.info("Together.ai client initialized successfully")
+
+        else:
+            logger.warning(
+                f"Unsupported LLM provider: {provider}. Supported providers: openai, together"
+            )
+            logger.warning(
+                "Application will continue without LLM. LLM features will not be available."
+            )
+            _llm_client = None
+
+    except Exception as e:
+        logger.warning(f"Failed to initialize {provider} LLM client: {e}")
+        logger.warning("Application will continue without LLM. LLM features will not be available.")
+        _llm_client = None
 
 
 async def init_openai() -> None:
     """
-    Initialize OpenAI LLM client.
+    Initialize OpenAI LLM client. Alias for backward compatibility.
 
-    Should be called during application startup.
-    Note: This is optional - the application will start even if OpenAI is not configured.
+    This function is deprecated. Use init_llm() instead.
     """
-    global _openai_client
-
-    try:
-        if not settings.openai_api_key:
-            logger.warning("OPENAI_API_KEY not set in environment")
-            logger.warning(
-                "Application will continue without OpenAI. LLM features will not be available."
-            )
-            _openai_client = None
-            return
-
-        logger.info(f"Initializing OpenAI client with model {settings.openai_model}")
-
-        _openai_client = ChatOpenAI(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
-            temperature=settings.openai_temperature,
-            max_tokens=settings.openai_max_tokens,
-        )
-
-        logger.info("OpenAI client initialized")
-
-    except Exception as e:
-        logger.warning(f"Failed to initialize OpenAI: {e}")
-        logger.warning(
-            "Application will continue without OpenAI. LLM features will not be available."
-        )
-        _openai_client = None
+    await init_llm()
 
 
 # Startup and Shutdown
@@ -317,8 +363,8 @@ async def startup_dependencies() -> None:
     await init_mongodb()
     await init_qdrant()
 
-    # Initialize LLM clients
-    await init_openai()
+    # Initialize LLM client (based on configured provider)
+    await init_llm()
 
     logger.info("All dependencies initialized successfully")
 

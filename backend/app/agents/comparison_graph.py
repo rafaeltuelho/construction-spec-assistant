@@ -5,10 +5,11 @@ This module implements a state machine workflow for comparing specification
 facts against submittal documents using RAG retrieval and LLM comparison.
 """
 
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Union
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
+from langchain_together import ChatTogether
 from langgraph.graph import StateGraph, END
 import json
 import logging
@@ -62,7 +63,9 @@ async def retrieve_node(
         return state
 
 
-async def compare_node(state: ComparisonState, llm_client: ChatOpenAI) -> ComparisonState:
+async def compare_node(
+    state: ComparisonState, llm_client: Union[ChatOpenAI, ChatTogether]
+) -> ComparisonState:
     """
     Compare spec fact against retrieved chunks using LLM.
 
@@ -181,7 +184,10 @@ async def compare_node(state: ComparisonState, llm_client: ChatOpenAI) -> Compar
 
 
 def create_comparison_graph(
-    retriever: BaseRetriever, llm_client: ChatOpenAI, top_k: int = 5, filters: Dict[str, Any] = None
+    retriever: BaseRetriever,
+    llm_client: Union[ChatOpenAI, ChatTogether],
+    top_k: int = 5,
+    filters: Dict[str, Any] = None,
 ) -> StateGraph:
     """
     Create LangGraph state machine for comparison workflow.

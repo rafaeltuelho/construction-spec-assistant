@@ -15,10 +15,11 @@ import json
 import uuid
 import re
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from collections import defaultdict
 
 from langchain_openai import ChatOpenAI
+from langchain_together import ChatTogether
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import ValidationError
 
@@ -109,7 +110,7 @@ def self_verify_against_span(facts: List[Fact], chunk_text: str) -> List[Fact]:
 async def extract_facts_from_chunk(
     chunk: DocumentChunk,
     document_id: str,
-    llm_client: ChatOpenAI,
+    llm_client: Union[ChatOpenAI, ChatTogether],
     entity_hint: Optional[str] = None,
     temperature: float = 0.0,
 ) -> List[Fact]:
@@ -248,7 +249,7 @@ def dedupe_facts(facts: List[Fact]) -> List[Fact]:
 async def harvest_facts_for_doc(
     document_id: str,
     chunks: List[DocumentChunk],
-    llm_client: ChatOpenAI,
+    llm_client: Union[ChatOpenAI, ChatTogether],
     entity_hints: Optional[Dict[str, str]] = None,
     normalize: bool = True,
     batch_size: int = 10,

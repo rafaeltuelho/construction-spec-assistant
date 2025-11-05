@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from langchain_openai import ChatOpenAI
 
 from app.api.schemas.fact import (
     FactExtractionRequest,
@@ -30,7 +29,7 @@ from app.db.mongodb import (
     get_document,
     get_fact_by_id,
 )
-from app.dependencies import get_mongodb, get_openai_client
+from app.dependencies import get_mongodb, get_openai_client, LLMClient
 from app.utils.logging import get_logger
 from app.utils.exceptions import NotFoundError, FactExtractionError
 
@@ -47,7 +46,7 @@ async def run_fact_extraction(
     job_id: str,
     document_id: str,
     chunks: list[DocumentChunk],
-    llm_client: ChatOpenAI,
+    llm_client: LLMClient,
     db: AsyncIOMotorDatabase,
     entity_hints: Optional[dict] = None,
     normalize: bool = True,
@@ -121,7 +120,7 @@ async def extract_facts(
     request: FactExtractionRequest,
     background_tasks: BackgroundTasks,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
-    llm_client: ChatOpenAI = Depends(get_openai_client),
+    llm_client: LLMClient = Depends(get_openai_client),
 ):
     """
     Extract facts from a processed document.

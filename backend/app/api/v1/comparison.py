@@ -8,7 +8,6 @@ against submittal documents using hybrid search and LLM comparison.
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
-from langchain_openai import ChatOpenAI
 from typing import Dict, Any
 import uuid
 import logging
@@ -38,7 +37,7 @@ from app.services.comparison import (
     compare_document_to_submittal,
     compare_batch,
 )
-from app.dependencies import get_mongodb, get_qdrant, get_llm_client
+from app.dependencies import get_mongodb, get_qdrant, get_llm_client, LLMClient
 from app.utils.exceptions import NotFoundError, ComparisonError
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ async def run_document_comparison(
     top_k: int,
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
-    llm_client: ChatOpenAI,
+    llm_client: LLMClient,
 ):
     """
     Background task to run document comparison.
@@ -193,7 +192,7 @@ async def compare_spec_to_submittal_endpoint(
     request: CompareRequest,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
-    llm_client: ChatOpenAI = Depends(get_llm_client),
+    llm_client: LLMClient = Depends(get_llm_client),
 ) -> ComparisonResult:
     """
     Compare a specification fact against a submittal document.
@@ -302,7 +301,7 @@ async def compare_document_to_submittal_endpoint(
     background_tasks: BackgroundTasks,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
-    llm_client: ChatOpenAI = Depends(get_llm_client),
+    llm_client: LLMClient = Depends(get_llm_client),
 ) -> DocumentComparisonResponse:
     """
     Initiate a document comparison job.
@@ -543,7 +542,7 @@ async def batch_compare_endpoint(
     request: BatchCompareRequest,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
-    llm_client: ChatOpenAI = Depends(get_llm_client),
+    llm_client: LLMClient = Depends(get_llm_client),
 ) -> BatchComparisonResponse:
     """
     Batch compare multiple specification facts against a submittal document.

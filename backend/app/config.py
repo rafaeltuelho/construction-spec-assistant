@@ -61,6 +61,12 @@ class Settings(BaseSettings):
         default=True, description="Use in-memory Qdrant (for development)"
     )
 
+    # LLM Provider Settings
+    llm_provider: str = Field(
+        default="openai",
+        description="LLM provider to use (openai, together, anthropic, ollama)",
+    )
+
     # OpenAI Settings
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model for fact extraction")
@@ -68,6 +74,17 @@ class Settings(BaseSettings):
         default=0.0, description="OpenAI temperature (0.0 = deterministic)"
     )
     openai_max_tokens: int = Field(default=4096, description="OpenAI max tokens per request")
+
+    # Together.ai Settings
+    together_api_key: Optional[str] = Field(default=None, description="Together.ai API key")
+    together_model: str = Field(
+        default="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        description="Together.ai model for fact extraction",
+    )
+    together_temperature: float = Field(
+        default=0.0, description="Together.ai temperature (0.0 = deterministic)"
+    )
+    together_max_tokens: int = Field(default=4096, description="Together.ai max tokens per request")
 
     # Anthropic Settings (optional)
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
@@ -124,6 +141,16 @@ class Settings(BaseSettings):
     comparison_max_retries: int = Field(
         default=3, description="Maximum retries for comparison agent"
     )
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider."""
+        valid_providers = ["openai", "together", "anthropic", "ollama"]
+        v_lower = v.lower()
+        if v_lower not in valid_providers:
+            raise ValueError(f"Invalid LLM provider: {v}. Must be one of {valid_providers}")
+        return v_lower
 
     @field_validator("log_level")
     @classmethod
