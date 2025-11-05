@@ -2,6 +2,27 @@ import { useState, useEffect } from 'react';
 import type { ComparisonResult, AnnotationType, Fact, DocumentSection } from '../types/api';
 import { getFactById, getSectionById } from '../services/api';
 
+/**
+ * Helper function to format page numbers for display
+ * Converts 0-indexed backend page numbers to 1-indexed user-friendly format
+ * @param pageStart - Starting page number (0-indexed)
+ * @param pageEnd - Ending page number (0-indexed)
+ * @returns Formatted page string (e.g., "Page 5" or "Page 5-7") or null if no page numbers
+ */
+const formatPageNumber = (pageStart: number | null | undefined, pageEnd: number | null | undefined): string | null => {
+  if (pageStart === null || pageStart === undefined) return null;
+
+  // Convert from 0-indexed to 1-indexed for display
+  const start = pageStart + 1;
+
+  if (pageEnd !== null && pageEnd !== undefined && pageEnd !== pageStart) {
+    const end = pageEnd + 1;
+    return `Page ${start}-${end}`;
+  }
+
+  return `Page ${start}`;
+};
+
 interface ComparisonResultCardProps {
   result: ComparisonResult;
   onAnnotationChange: (comparisonId: string, annotationType: AnnotationType | null, noteText?: string) => void;
@@ -243,6 +264,38 @@ export function ComparisonResultCard({
         <p className="text-sm text-gray-700">{result.reasoning}</p>
       </div>
 
+      {/* Retrieved Chunks Section */}
+      {result.retrieved_chunks && result.retrieved_chunks.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Retrieved Context Chunks</h3>
+          <div className="space-y-2">
+            {result.retrieved_chunks.map((chunk, idx) => (
+              <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-600">
+                      Chunk {idx + 1}
+                    </span>
+                    {/* Page number badge */}
+                    {formatPageNumber(chunk.page_start, chunk.page_end) && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">
+                        {formatPageNumber(chunk.page_start, chunk.page_end)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    Score: {(chunk.relevance_score * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 whitespace-pre-wrap line-clamp-3">
+                  {chunk.content}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Document Context Section */}
       {result.spec_fact.fact_id && (
         <div className="mb-4 border-t border-gray-200 pt-4">
@@ -305,10 +358,18 @@ export function ComparisonResultCard({
                   {/* Section content */}
                   {sectionData && (
                     <div className="mt-3 p-3 bg-gray-50 rounded border border-gray-200">
-                      <p className="text-sm font-medium text-gray-700 mb-2">
-                        {sectionData.section_number && `${sectionData.section_number} - `}
-                        {sectionData.title}
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium text-gray-700">
+                          {sectionData.section_number && `${sectionData.section_number} - `}
+                          {sectionData.title}
+                        </p>
+                        {/* Page number badge */}
+                        {formatPageNumber(sectionData.page_start, sectionData.page_end) && (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium whitespace-nowrap ml-2">
+                            {formatPageNumber(sectionData.page_start, sectionData.page_end)}
+                          </span>
+                        )}
+                      </div>
                       <details className="text-sm text-gray-600">
                         <summary className="cursor-pointer text-primary-600 hover:text-primary-700 font-medium">
                           View full section content

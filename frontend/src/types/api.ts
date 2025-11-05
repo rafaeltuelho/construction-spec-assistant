@@ -106,6 +106,8 @@ export interface RetrievedChunk {
   chunk_id: string;
   content: string;
   relevance_score: number;
+  page_start?: number | null;  // 0-indexed page number from Docling provenance
+  page_end?: number | null;    // 0-indexed page number from Docling provenance
 }
 
 // Fact-related types
@@ -164,6 +166,9 @@ export interface DocumentSection {
   content: string;
   parent_section_id?: string | null;
   order_index: number;
+  header_path?: string[];      // Hierarchical path of section headers
+  page_start?: number | null;  // 0-indexed page number from Docling provenance
+  page_end?: number | null;    // 0-indexed page number from Docling provenance
 }
 
 export interface ComparisonResult {
