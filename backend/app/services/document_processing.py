@@ -319,7 +319,7 @@ async def process_document(
                 section_id=section_id,
                 document_id=document_id,
                 title="Document Content",
-                level=0,
+                level=1,  # Must be >= 1 per DocumentSection validation
                 section_number=None,
                 content=markdown_content,
                 order_index=0,
