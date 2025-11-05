@@ -144,6 +144,32 @@ def _looks_like_markdown_heading(line: str) -> tuple[bool, int, str]:
     return False, 0, ""
 
 
+# Patterns to ignore (document artifacts, headers, footers, etc.)
+IGNORE_HEADER_PATTERNS = [
+    re.compile(r"^\d{4}$"),  # Pure numbers like "2345" (page numbers)
+    re.compile(r"^SECTION\s+\d{2}\s+\d{2}\s+\d{2}$", re.IGNORECASE),  # "SECTION 14 24 00"
+    re.compile(r"^Construction Documents$", re.IGNORECASE),  # Header/footer text
+    re.compile(r"^END OF SECTION$", re.IGNORECASE),  # End marker
+]
+
+
+def _should_ignore_header(header: str) -> bool:
+    """
+    Check if header should be ignored (document artifacts, etc.).
+
+    Args:
+        header: Header text to check
+
+    Returns:
+        True if header should be ignored, False otherwise
+    """
+    header = header.strip()
+    for pattern in IGNORE_HEADER_PATTERNS:
+        if pattern.match(header):
+            return True
+    return False
+
+
 def _parse_line(line: str) -> Optional[tuple[int, str, str]]:
     """Parse a line to detect CSI section header."""
     line = line.strip()
@@ -238,6 +264,11 @@ def _sectionize_notebook_style(md_text: str) -> List[Section]:
         """Start a new section and add it to the flat list."""
         nonlocal current, path_stack, sections
         header = _normalize_header(header)
+
+        # Filter out document artifacts (page numbers, headers, footers, etc.)
+        if _should_ignore_header(header):
+            logger.debug(f"Ignoring header artifact: {header}")
+            return
 
         # Pop to parent level
         while path_stack and path_stack[-1][0] >= level:

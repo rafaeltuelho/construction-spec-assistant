@@ -182,11 +182,12 @@ async def process_document(
 
         # Step 2 & 3: Process based on document type
         if document_type == DocumentType.SPECIFICATION:
-            # CSI Specification: Use hierarchical sectionization
-            logger.info(f"[{document_id}] Step 2: Sectionizing CSI specification")
+            # CSI Specification: Use notebook-style sectionization (CSI-aware)
+            logger.info(f"[{document_id}] Step 2: Sectionizing CSI specification (notebook-style)")
             await update_processing_progress(mongodb, document_id, 30, "sectionizing")
 
-            sections = sectionize_markdown(markdown_content)
+            # Use notebook-style sectionization for better CSI structure detection
+            sections = sectionize_markdown(markdown_content, use_notebook_logic=True)
 
             if not sections:
                 logger.warning(f"[{document_id}] No sections found in document")
