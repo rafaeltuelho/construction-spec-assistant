@@ -1,5 +1,4 @@
 # Logs
-.vibe-log/
 logs
 *.log
 npm-debug.log*
@@ -29,8 +28,9 @@ dist-ssr
 .venv/
 __pycache__/
 
+.vibe-log/
 .ignore*
 .bkp
-data/
+experimental_data/
 mongodb_data/
 qdrant_storage/
