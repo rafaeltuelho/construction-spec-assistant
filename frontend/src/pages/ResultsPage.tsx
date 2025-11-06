@@ -11,6 +11,7 @@ export function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'inconsistent' | 'unclear' | 'consistent'>('all');
   const [annotations, setAnnotations] = useState<Map<string, UserAnnotation>>(new Map());
+  const [savedAnnotations, setSavedAnnotations] = useState<Map<string, UserAnnotation>>(new Map());
   const [isSavingAnnotations, setIsSavingAnnotations] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -63,6 +64,17 @@ export function ResultsPage() {
       await saveAnnotations(jobId, {
         annotations: Array.from(annotations.values()),
       });
+
+      // Merge current annotations into saved annotations
+      const newSavedAnnotations = new Map(savedAnnotations);
+      annotations.forEach((annotation, id) => {
+        newSavedAnnotations.set(id, annotation);
+      });
+      setSavedAnnotations(newSavedAnnotations);
+
+      // Clear pending annotations after successful save
+      setAnnotations(new Map());
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
@@ -133,9 +145,9 @@ export function ResultsPage() {
 
   const filteredResults = filterResults(comparisonData.comparisons);
 
-  // Calculate number of unannotated comparisons
+  // Calculate number of unannotated comparisons (not in pending or saved annotations)
   const unannotatedCount = comparisonData.comparisons.filter(
-    (result) => !annotations.has(result.comparison_id)
+    (result) => !annotations.has(result.comparison_id) && !savedAnnotations.has(result.comparison_id)
   ).length;
 
   return (
@@ -326,7 +338,8 @@ export function ResultsPage() {
             </div>
           ) : (
             filteredResults.map((result) => {
-              const annotation = annotations.get(result.comparison_id);
+              // Check pending annotations first, then saved annotations
+              const annotation = annotations.get(result.comparison_id) || savedAnnotations.get(result.comparison_id);
               return (
                 <ComparisonResultCard
                   key={result.comparison_id}
