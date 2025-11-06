@@ -133,6 +133,14 @@ Finally, the system generates a report to the user highlighting the inconsistenc
 
 ## 🚀 Task 4: Building an End-to-End Agentic RAG Prototype
 
+### Prototype Web Interface
+
+#### File Upload Screenshot
+![Prototype UI](docs/images/frontend-screenshot.png)
+
+#### Comparison Results
+![Prototype UI](docs/images/comparison-results.png)
+
 ### Prototype High-Level Architecture
 
 ```
@@ -210,6 +218,10 @@ RAG (Retrieval-Augmented Generation) system and LangGraph-based comparison agent
 │  Evidence       │
 └─────────────────┘
 ```
+
+### Comparison Agent Workflow
+
+![Comparison flow](docs/images/app-agent-flow.png)
 
 ### API Documentation
 
@@ -294,3 +306,6 @@ Here is a visual representation of the results:
 
 ### GitHub Repository
  * https://github.com/rafaeltuelho/construction-spec-assistant
+
+### 5-minute Live Demo
+ * https://www.loom.com/share/0ec858d262e34dd48b9a9cd644980e88
