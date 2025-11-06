@@ -9,15 +9,12 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "python-multipart>=0.0.12",
-
     # Pydantic for data validation
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
-
     # Database clients
-    "motor>=3.6.0",  # Async MongoDB client
+    "motor>=3.6.0", # Async MongoDB client
     "qdrant-client>=1.12.0",
-
     # LangChain and LLM
     "langchain>=0.3.0",
     "langchain-openai>=0.2.0",
@@ -29,35 +26,28 @@ dependencies = [
     "langgraph>=0.2.0",
     "langsmith>=0.1.0",
     "cohere>=5.12.0,<5.13.0",
-
     # Document processing
     "docling>=2.7.0",
     "docling-core>=2.5.0",
     "easyocr>=1.7.0",
     "pymupdf>=1.23.0",
     "pillow>=10.0.0",
-
     # Embeddings and retrieval
     "fastembed>=0.4.0",
     "rank-bm25>=0.2.2",
-
     # Data processing
     "pandas>=2.0.0",
     "numpy>=1.24.0",
-
     # Unit normalization
     "pint>=0.24.0",
-
     # Token counting
     "tiktoken>=0.8.0",
-
     # Utilities
     "python-dotenv>=1.0.0",
     "nest-asyncio>=1.5.0",
     "pyyaml>=6.0.0",
     "rapidfuzz>=3.14.1",
     "json-repair>=0.52.3",
-
     # Development and notebook (for experimentation)
     "jupyter>=1.0.0",
     "ipython>=8.0.0",
@@ -65,9 +55,9 @@ dependencies = [
     "notebook>=6.5.0",
     "matplotlib>=3.7.0",
     "plotly>=5.0.0",
-
     # Evaluation (for experimentation)
     "ragas>=0.3.1",
+    "langchain-together>=0.3.1",
 ]
 
 [project.optional-dependencies]

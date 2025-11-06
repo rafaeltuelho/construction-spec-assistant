@@ -38,6 +38,7 @@ notebook>=6.5.0
 matplotlib>=3.7.0
 plotly>=5.0.0
 ragas>=0.3.1
+langchain-together>=0.3.1
 
 [dev]
 pytest>=8.3.0
