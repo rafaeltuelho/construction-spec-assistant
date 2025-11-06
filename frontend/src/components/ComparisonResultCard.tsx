@@ -57,8 +57,18 @@ export function ComparisonResultCard({
     setNoteText(initialNoteText);
   }, [initialAnnotation, initialNoteText]);
 
-  const handleAnnotationClick = (type: AnnotationType) => {
+  const handleAnnotationClick = async (type: AnnotationType) => {
     if (type === 'note') {
+      // Fetch context data if not already loaded
+      if (!factData && !loadingContext && result.spec_fact.fact_id) {
+        await fetchContextData();
+      }
+
+      // Populate note text with source_span if available and note is empty
+      if (!noteText && factData?.context?.source_span) {
+        setNoteText(factData.context.source_span);
+      }
+
       setShowNoteInput(true);
       setSelectedAnnotation(type);
     } else {
@@ -286,7 +296,7 @@ export function ComparisonResultCard({
             }}
             className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
           >
-            <h3 className="text-sm font-semibold text-gray-700">Spec Provenance</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Specification Provenance</h3>
             <svg
               className={`h-4 w-4 transform transition-transform ${contextExpanded ? 'rotate-180' : ''}`}
               fill="currentColor"
@@ -389,7 +399,7 @@ export function ComparisonResultCard({
             className="flex items-center justify-between w-full text-left hover:bg-gray-50 p-2 rounded transition-colors"
           >
             <h3 className="text-sm font-semibold text-gray-700">
-              Contextual Findings ({result.retrieved_chunks.length} text chunks)
+              Contextual Findings in the Submittal ({result.retrieved_chunks.length} text chunks)
             </h3>
             <svg
               className={`h-4 w-4 transform transition-transform ${chunksExpanded ? 'rotate-180' : ''}`}
