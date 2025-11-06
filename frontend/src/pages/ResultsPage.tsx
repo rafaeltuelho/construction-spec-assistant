@@ -133,6 +133,11 @@ export function ResultsPage() {
 
   const filteredResults = filterResults(comparisonData.comparisons);
 
+  // Calculate number of unannotated comparisons
+  const unannotatedCount = comparisonData.comparisons.filter(
+    (result) => !annotations.has(result.comparison_id)
+  ).length;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4">
@@ -169,13 +174,23 @@ export function ResultsPage() {
         {/* Save Annotations Button */}
         {annotations.size > 0 && (
           <div className="mb-6 bg-white rounded-lg shadow p-4 flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <svg className="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-              </svg>
-              <span className="text-sm font-medium text-gray-700">
-                {annotations.size} annotation{annotations.size !== 1 ? 's' : ''} pending
-              </span>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <svg className="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                </svg>
+                <span className="text-sm font-medium text-gray-700">
+                  {annotations.size} unsaved change{annotations.size !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2 text-gray-500">
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm">
+                  {unannotatedCount} unannotated comparison{unannotatedCount !== 1 ? 's' : ''}
+                </span>
+              </div>
             </div>
             <button
               onClick={handleSaveAnnotations}
@@ -184,6 +199,21 @@ export function ResultsPage() {
             >
               {isSavingAnnotations ? 'Saving...' : 'Save Annotations'}
             </button>
+          </div>
+        )}
+
+        {/* Unannotated Comparisons Info (when no pending changes) */}
+        {annotations.size === 0 && unannotatedCount > 0 && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center space-x-2">
+              <svg className="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm font-medium text-blue-800">
+                {unannotatedCount} comparison{unannotatedCount !== 1 ? 's' : ''} not yet annotated.
+                Mark them as Disregard, Confirmed, or add a Note.
+              </span>
+            </div>
           </div>
         )}
 
