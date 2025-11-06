@@ -15,9 +15,9 @@ from pathlib import Path
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent / "backend"))
 
-from app.core.docling_parser import parse_document_with_fallback
-from app.core.sectionizer import sectionize_markdown, flatten_sections
 from app.core.chunker import chunk_sections, hybrid_chunk_document
+from app.core.docling_parser import parse_document_with_fallback
+from app.core.sectionizer import flatten_sections, sectionize_markdown
 
 
 async def test_page_numbers():
