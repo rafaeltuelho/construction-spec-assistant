@@ -45,6 +45,9 @@ class DocumentMetadata(BaseModel):
     filename: str = Field(..., description="Original filename")
     file_size: int = Field(..., description="File size in bytes")
     mime_type: str = Field(default="application/pdf")
+    content_hash: Optional[str] = Field(
+        None, description="SHA256 hash of file content for duplicate detection"
+    )
     upload_timestamp: datetime = Field(default_factory=datetime.utcnow)
     processing_timestamp: Optional[datetime] = None
     used_ocr: bool = Field(default=False, description="Whether OCR was used")

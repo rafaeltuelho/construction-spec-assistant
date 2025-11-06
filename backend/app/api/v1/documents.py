@@ -9,6 +9,7 @@ This module provides REST API endpoints for document operations:
 - Search chunks
 """
 
+import hashlib
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -110,11 +111,18 @@ async def upload_document(
     project_id: Optional[str] = Form(None, description="Project ID (optional)"),
     max_chunk_tokens: int = Form(500, description="Maximum tokens per chunk"),
     chunk_overlap_tokens: int = Form(50, description="Overlap tokens between chunks"),
+    force_reupload: bool = Form(False, description="Force reupload even if duplicate file exists"),
     mongodb=Depends(get_mongodb),
     qdrant=Depends(get_qdrant),
 ):
     """
     Upload and process a PDF document.
+
+    **Duplicate Detection:**
+    - Automatically detects duplicate files using SHA256 content hash
+    - If duplicate detected, returns existing document (HTTP 200) with `duplicate_detected: true`
+    - Use `force_reupload=true` to bypass duplicate detection and force reprocessing
+    - Duplicates are detected per document_type (same file can exist as both spec and submittal)
 
     Processing differs based on document type:
 
@@ -179,6 +187,36 @@ async def upload_document(
 
         logger.info(f"File validation passed: {file.filename} ({file_size_mb:.2f} MB)")
 
+        # Generate content hash for duplicate detection
+        content_hash = hashlib.sha256(content).hexdigest()
+        logger.debug(f"Content hash: {content_hash}")
+
+        # Check for duplicate document (unless force_reupload is True)
+        if not force_reupload:
+            existing_doc = await mongodb.documents.find_one(
+                {
+                    "metadata.content_hash": content_hash,
+                    "metadata.document_type": doc_type.value,
+                }
+            )
+
+            if existing_doc:
+                logger.info(
+                    f"Duplicate document detected: {existing_doc['document_id']} "
+                    f"(content_hash={content_hash[:16]}...)"
+                )
+                # Return existing document with 200 status
+                response = DocumentResponse(**existing_doc)
+                response.processing_job_id = existing_doc["document_id"]
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        **response.model_dump(mode="json"),
+                        "duplicate_detected": True,
+                        "message": "Document already exists. Returning existing document.",
+                    },
+                )
+
         # Save uploaded file to temporary location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(content)
@@ -194,6 +232,7 @@ async def upload_document(
             filename=file.filename,
             file_size=len(content),
             mime_type="application/pdf",
+            content_hash=content_hash,
         )
 
         # Initialize progress tracking
