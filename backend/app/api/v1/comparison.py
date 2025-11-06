@@ -31,6 +31,7 @@ from app.models.comparison import (
     ComparisonResult,
     RetrievedChunk,
     ComparisonSummary,
+    SaveReportRequest,
 )
 from app.services.comparison import (
     compare_spec_to_submittal,
@@ -989,7 +990,7 @@ async def get_comparison_report(
 )
 async def save_comparison_report(
     job_id: str,
-    request: Any,
+    save_request: SaveReportRequest,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
 ):
     """
@@ -997,7 +998,7 @@ async def save_comparison_report(
 
     Args:
         job_id: Job identifier
-        request: Report conclusion data
+        save_request: Report conclusion data
         db: MongoDB database instance
 
     Returns:
@@ -1010,14 +1011,8 @@ async def save_comparison_report(
         logger.info(f"Saving report conclusion: job_id={job_id}")
 
         # Import models
-        from app.models.comparison import SaveReportRequest, SaveReportResponse, ReportConclusion
+        from app.models.comparison import SaveReportResponse, ReportConclusion
         from app.db.mongodb import get_document_comparison_result, save_report_conclusion
-
-        # Validate request
-        if not isinstance(request, dict):
-            request = request.model_dump()
-
-        save_request = SaveReportRequest(**request)
 
         # Verify job exists
         comparison_result = await get_document_comparison_result(db, job_id)
