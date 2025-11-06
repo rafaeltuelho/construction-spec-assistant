@@ -177,3 +177,106 @@ class DocumentComparisonResult(BaseModel):
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class ConclusionType(str, Enum):
+    """Report conclusion types."""
+
+    REVIEWED = "reviewed"
+    REVIEWED_AS_NOTED = "reviewed_as_noted"
+    REVISE_AND_RESUBMIT = "revise_and_resubmit"
+    REJECTED = "rejected"
+    FOR_RECORD_ONLY = "for_record_only"
+
+
+class ReportAnnotation(BaseModel):
+    """
+    Annotation data for report generation.
+
+    Attributes:
+        comparison_id: Comparison identifier
+        note_text: The note text content
+        annotated_at: When the annotation was created
+        spec_fact: The specification fact that was annotated
+    """
+
+    comparison_id: str = Field(..., description="Comparison identifier")
+    note_text: str = Field(..., description="The note text content")
+    annotated_at: datetime = Field(..., description="When the annotation was created")
+    spec_fact: Dict[str, Any] = Field(..., description="The specification fact that was annotated")
+
+
+class ReportResponse(BaseModel):
+    """
+    Response model for report generation.
+
+    Attributes:
+        job_id: Job identifier
+        spec_document_id: Specification document ID
+        submittal_document_id: Submittal document ID
+        annotations: List of note annotations
+        report_generated_at: When the report was generated
+        conclusion: Saved report conclusion (if any)
+    """
+
+    job_id: str = Field(..., description="Job identifier")
+    spec_document_id: str = Field(..., description="Specification document ID")
+    submittal_document_id: str = Field(..., description="Submittal document ID")
+    annotations: List[ReportAnnotation] = Field(
+        default_factory=list, description="List of note annotations"
+    )
+    report_generated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When the report was generated"
+    )
+    conclusion: Optional["ReportConclusion"] = Field(
+        None, description="Saved report conclusion (if any)"
+    )
+
+
+class SaveReportRequest(BaseModel):
+    """
+    Request model for saving report conclusion.
+
+    Attributes:
+        conclusion_type: Type of conclusion (reviewed, reviewed_as_noted, etc.)
+        conclusion_comment: Optional additional comments
+    """
+
+    conclusion_type: ConclusionType = Field(..., description="Type of conclusion")
+    conclusion_comment: Optional[str] = Field(None, description="Optional additional comments")
+
+
+class ReportConclusion(BaseModel):
+    """
+    Report conclusion data.
+
+    Attributes:
+        conclusion_type: Type of conclusion
+        conclusion_comment: Optional additional comments
+        concluded_at: When the conclusion was saved
+        concluded_by: User who saved the conclusion (for future authentication)
+    """
+
+    conclusion_type: ConclusionType = Field(..., description="Type of conclusion")
+    conclusion_comment: Optional[str] = Field(None, description="Optional additional comments")
+    concluded_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When the conclusion was saved"
+    )
+    concluded_by: Optional[str] = Field(
+        None, description="User who saved the conclusion (for future authentication)"
+    )
+
+
+class SaveReportResponse(BaseModel):
+    """
+    Response model for saving report conclusion.
+
+    Attributes:
+        success: Whether the save was successful
+        message: Success or error message
+        conclusion: The saved conclusion data
+    """
+
+    success: bool = Field(..., description="Whether the save was successful")
+    message: str = Field(..., description="Success or error message")
+    conclusion: Optional[ReportConclusion] = Field(None, description="The saved conclusion data")

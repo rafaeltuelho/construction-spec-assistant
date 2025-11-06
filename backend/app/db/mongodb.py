@@ -606,3 +606,65 @@ async def update_comparison_annotations(
     except Exception as e:
         logger.error(f"Failed to update annotations: {str(e)}")
         raise DatabaseError(f"Failed to update annotations: {str(e)}")
+
+
+async def save_report_conclusion(
+    db: AsyncIOMotorDatabase, job_id: str, conclusion: Dict[str, Any]
+) -> None:
+    """
+    Save report conclusion to a comparison result.
+
+    Args:
+        db: MongoDB database instance
+        job_id: Job identifier
+        conclusion: Report conclusion data
+
+    Raises:
+        DatabaseError: If save fails
+        NotFoundError: If comparison result not found
+    """
+    try:
+        result = await db.document_comparison_results.update_one(
+            {"_id": job_id},
+            {"$set": {"report_conclusion": conclusion, "updated_at": datetime.utcnow()}},
+        )
+
+        if result.matched_count == 0:
+            raise NotFoundError(f"Comparison result not found: {job_id}")
+
+        logger.info(f"Saved report conclusion for job: {job_id}")
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save report conclusion: {str(e)}")
+        raise DatabaseError(f"Failed to save report conclusion: {str(e)}")
+
+
+async def get_report_conclusion(db: AsyncIOMotorDatabase, job_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve report conclusion for a comparison result.
+
+    Args:
+        db: MongoDB database instance
+        job_id: Job identifier
+
+    Returns:
+        Report conclusion data if exists, None otherwise
+
+    Raises:
+        DatabaseError: If retrieval fails
+    """
+    try:
+        result = await db.document_comparison_results.find_one(
+            {"_id": job_id}, {"report_conclusion": 1}
+        )
+
+        if not result:
+            return None
+
+        return result.get("report_conclusion")
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve report conclusion: {str(e)}")
+        raise DatabaseError(f"Failed to retrieve report conclusion: {str(e)}")

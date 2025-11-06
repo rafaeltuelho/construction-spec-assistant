@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ComparisonResultCard } from '../components/ComparisonResultCard';
 import { getComparisonStatus, saveAnnotations } from '../services/api';
 import type { ComparisonStatusResponse, ComparisonResult, UserAnnotation, AnnotationType } from '../types/api';
 
 export function ResultsPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const navigate = useNavigate();
   const [comparisonData, setComparisonData] = useState<ComparisonStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -366,18 +367,17 @@ export function ResultsPage() {
           )}
         </div>
 
-        {/* Generate Report Button (Placeholder) */}
+        {/* Generate Report Button */}
         <div className="mt-8 bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Generate Report</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Generate a comprehensive PDF report with all comparison results and your annotations.
+            Generate a professional report with all noted items and add your conclusion.
           </p>
           <button
-            disabled
-            className="btn-primary opacity-50 cursor-not-allowed"
-            title="Report generation coming soon"
+            onClick={() => navigate(`/report/${jobId}`)}
+            className="btn-primary"
           >
-            Generate Report (Coming Soon)
+            Generate Report
           </button>
         </div>
       </div>

@@ -9,9 +9,9 @@ import type {
   ComparisonStatusResponse,
   SaveAnnotationsRequest,
   SaveAnnotationsResponse,
-  ReportGenerationRequest,
-  ReportGenerationResponse,
-  ReportStatusResponse,
+  ReportResponse,
+  SaveReportRequest,
+  SaveReportResponse,
   ErrorResponse,
   Fact,
   DocumentSection,
@@ -153,11 +153,16 @@ export async function saveAnnotations(
   return handleResponse<SaveAnnotationsResponse>(response);
 }
 
-// Report Generation (Placeholder)
-export async function generateReport(
+// Report Generation
+export async function getReport(jobId: string): Promise<ReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/comparison/${jobId}/report`);
+  return handleResponse<ReportResponse>(response);
+}
+
+export async function saveReport(
   jobId: string,
-  request: ReportGenerationRequest
-): Promise<ReportGenerationResponse> {
+  request: SaveReportRequest
+): Promise<SaveReportResponse> {
   const response = await fetch(`${API_BASE_URL}/comparison/${jobId}/report`, {
     method: 'POST',
     headers: {
@@ -165,26 +170,8 @@ export async function generateReport(
     },
     body: JSON.stringify(request),
   });
-  
-  return handleResponse<ReportGenerationResponse>(response);
-}
 
-export async function getReportStatus(
-  jobId: string,
-  reportJobId: string
-): Promise<ReportStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/comparison/${jobId}/report/${reportJobId}`);
-  return handleResponse<ReportStatusResponse>(response);
-}
-
-export async function downloadReport(reportJobId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/comparison/reports/${reportJobId}/download`);
-
-  if (!response.ok) {
-    throw new ApiError('Failed to download report', response.status);
-  }
-
-  return response.blob();
+  return handleResponse<SaveReportResponse>(response);
 }
 
 // Health Check

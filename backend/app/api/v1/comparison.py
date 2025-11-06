@@ -880,3 +880,174 @@ async def get_annotations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve annotations: {str(e)}",
         )
+
+
+@router.get(
+    "/{job_id}/report",
+    response_model=Any,
+    status_code=status.HTTP_200_OK,
+    summary="Generate comparison report",
+    description="""
+    Generate a report for a comparison job.
+
+    Returns all annotations with type='note' along with job metadata.
+    This endpoint is used to generate a professional report for review.
+    """,
+)
+async def get_comparison_report(
+    job_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+):
+    """
+    Generate comparison report with note annotations.
+
+    Args:
+        job_id: Job identifier
+        db: MongoDB database instance
+
+    Returns:
+        Report data with note annotations and job metadata
+
+    Raises:
+        HTTPException: If job not found or retrieval fails
+    """
+    try:
+        logger.info(f"Generating report: job_id={job_id}")
+
+        # Import models
+        from app.models.comparison import ReportResponse, ReportAnnotation, ReportConclusion
+        from app.db.mongodb import get_document_comparison_result, get_report_conclusion
+
+        # Get comparison result from MongoDB
+        comparison_result = await get_document_comparison_result(db, job_id)
+        if not comparison_result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Comparison job not found: {job_id}"
+            )
+
+        # Filter annotations with type='note'
+        note_annotations = []
+        if comparison_result.annotations:
+            for comparison_id, annotations in comparison_result.annotations.items():
+                for annotation in annotations:
+                    if annotation.annotation_type == AnnotationType.NOTE:
+                        # Find the corresponding comparison to get spec_fact
+                        spec_fact = None
+                        for comparison in comparison_result.comparisons:
+                            if comparison.comparison_id == comparison_id:
+                                spec_fact = comparison.spec_fact
+                                break
+
+                        if spec_fact:
+                            note_annotations.append(
+                                ReportAnnotation(
+                                    comparison_id=comparison_id,
+                                    note_text=annotation.note_text or "",
+                                    annotated_at=annotation.annotated_at,
+                                    spec_fact=spec_fact,
+                                )
+                            )
+
+        # Get saved conclusion if exists
+        conclusion_data = await get_report_conclusion(db, job_id)
+        conclusion = None
+        if conclusion_data:
+            conclusion = ReportConclusion(**conclusion_data)
+
+        logger.info(
+            f"Generated report with {len(note_annotations)} note annotations for job_id={job_id}"
+        )
+
+        return ReportResponse(
+            job_id=job_id,
+            spec_document_id=comparison_result.spec_document_id,
+            submittal_document_id=comparison_result.submittal_document_id,
+            annotations=note_annotations,
+            conclusion=conclusion,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate report: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate report: {str(e)}",
+        )
+
+
+@router.post(
+    "/{job_id}/report",
+    response_model=Any,
+    status_code=status.HTTP_200_OK,
+    summary="Save report conclusion",
+    description="""
+    Save the conclusion for a comparison report.
+
+    Accepts a conclusion type (reviewed, reviewed_as_noted, etc.) and optional comment.
+    """,
+)
+async def save_comparison_report(
+    job_id: str,
+    request: Any,
+    db: AsyncIOMotorDatabase = Depends(get_mongodb),
+):
+    """
+    Save report conclusion.
+
+    Args:
+        job_id: Job identifier
+        request: Report conclusion data
+        db: MongoDB database instance
+
+    Returns:
+        Success response with saved conclusion
+
+    Raises:
+        HTTPException: If job not found or save fails
+    """
+    try:
+        logger.info(f"Saving report conclusion: job_id={job_id}")
+
+        # Import models
+        from app.models.comparison import SaveReportRequest, SaveReportResponse, ReportConclusion
+        from app.db.mongodb import get_document_comparison_result, save_report_conclusion
+
+        # Validate request
+        if not isinstance(request, dict):
+            request = request.model_dump()
+
+        save_request = SaveReportRequest(**request)
+
+        # Verify job exists
+        comparison_result = await get_document_comparison_result(db, job_id)
+        if not comparison_result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Comparison job not found: {job_id}"
+            )
+
+        # Create conclusion object
+        conclusion = ReportConclusion(
+            conclusion_type=save_request.conclusion_type,
+            conclusion_comment=save_request.conclusion_comment,
+        )
+
+        # Save to MongoDB
+        await save_report_conclusion(db, job_id, conclusion.model_dump())
+
+        logger.info(f"Saved report conclusion for job_id={job_id}")
+
+        return SaveReportResponse(
+            success=True,
+            message="Report conclusion saved successfully",
+            conclusion=conclusion,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save report conclusion: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save report conclusion: {str(e)}",
+        )

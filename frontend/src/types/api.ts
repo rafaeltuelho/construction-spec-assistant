@@ -253,35 +253,46 @@ export interface SaveAnnotationsResponse {
   message: string;
 }
 
-// Report Generation (Placeholder)
-export interface ReportGenerationRequest {
-  format: 'pdf' | 'docx';
-  include_sections: {
-    summary: boolean;
-    consistent_items: boolean;
-    inconsistent_items: boolean;
-    unclear_items: boolean;
-    annotations: boolean;
-  };
-  report_title?: string;
-  project_name?: string;
+// Report Generation
+export type ConclusionType =
+  | 'reviewed'
+  | 'reviewed_as_noted'
+  | 'revise_and_resubmit'
+  | 'rejected'
+  | 'for_record_only';
+
+export interface ReportAnnotation {
+  comparison_id: string;
+  note_text: string;
+  annotated_at: string;
+  spec_fact: SpecFact;
 }
 
-export interface ReportGenerationResponse {
-  report_job_id: string;
-  status: JobStatus;
+export interface ReportConclusion {
+  conclusion_type: ConclusionType;
+  conclusion_comment?: string;
+  concluded_at: string;
+  concluded_by?: string;
+}
+
+export interface ReportResponse {
+  job_id: string;
+  spec_document_id: string;
+  submittal_document_id: string;
+  annotations: ReportAnnotation[];
+  report_generated_at: string;
+  conclusion?: ReportConclusion;
+}
+
+export interface SaveReportRequest {
+  conclusion_type: ConclusionType;
+  conclusion_comment?: string;
+}
+
+export interface SaveReportResponse {
+  success: boolean;
   message: string;
-}
-
-export interface ReportStatusResponse {
-  report_job_id: string;
-  status: JobStatus;
-  progress?: number;
-  download_url?: string;
-  filename?: string;
-  file_size_bytes?: number;
-  started_at: string;
-  completed_at?: string;
+  conclusion?: ReportConclusion;
 }
 
 // Error Response
