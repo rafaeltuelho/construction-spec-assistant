@@ -21,6 +21,7 @@ from collections import defaultdict
 from langchain_openai import ChatOpenAI
 from langchain_together import ChatTogether
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from app.models.document import DocumentChunk
@@ -148,10 +149,30 @@ async def extract_facts_from_chunk(
             chunk_text=chunk.content,
         )
 
-        # Call LLM
+        # Call LLM with LangSmith metadata
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
 
-        response = await llm_client.ainvoke(messages)
+        # Add LangSmith metadata for tracing
+        config = RunnableConfig(
+            tags=[
+                "fact-extraction",
+                f"doc:{document_id}",
+                f"chunk:{chunk.chunk_id}",
+                f"section:{chunk.section_id}",
+            ],
+            metadata={
+                "operation": "fact_extraction",
+                "document_id": document_id,
+                "chunk_id": chunk.chunk_id,
+                "section_id": chunk.section_id,
+                "section_title": chunk.section_title,
+                "entity_hint": entity_hint,
+                "temperature": temperature,
+                "chunk_length": len(chunk.content),
+            },
+        )
+
+        response = await llm_client.ainvoke(messages, config=config)
         logger.debug(f"LLM response for chunk {chunk.chunk_id}: {response.content[:200]}...")
 
         # Parse JSONL response

@@ -4,6 +4,7 @@ FastAPI dependency injection for database clients and services.
 This module provides dependency functions that can be injected into API endpoints.
 """
 
+import os
 from typing import AsyncGenerator, Optional, Union
 from fastapi import Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -348,6 +349,56 @@ async def init_openai() -> None:
     await init_llm()
 
 
+# LangSmith Initialization
+
+
+async def init_langsmith() -> None:
+    """
+    Initialize LangSmith tracing.
+
+    Sets environment variables required by LangChain for automatic tracing.
+    LangChain will automatically trace all LLM calls and agent workflows when
+    these environment variables are set.
+
+    Environment variables set:
+    - LANGCHAIN_TRACING_V2: Enable tracing v2
+    - LANGCHAIN_API_KEY: LangSmith API key
+    - LANGCHAIN_PROJECT: Project name for organizing traces
+    - LANGCHAIN_ENDPOINT: LangSmith API endpoint
+
+    Raises:
+        No exceptions raised - failures are logged as warnings
+    """
+    if not settings.langsmith_enabled:
+        logger.info("LangSmith tracing is disabled")
+        return
+
+    if not settings.langsmith_api_key:
+        logger.warning("LangSmith API key not set. Tracing will be disabled.")
+        logger.warning(
+            "Set LANGSMITH_ENABLED=true and LANGSMITH_API_KEY in environment to enable tracing."
+        )
+        return
+
+    try:
+        # Set environment variables for LangChain tracing
+        os.environ["LANGCHAIN_TRACING_V2"] = str(settings.langsmith_tracing_v2).lower()
+        os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+        os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
+
+        logger.info("=" * 60)
+        logger.info("LangSmith Tracing Enabled")
+        logger.info(f"  Project: {settings.langsmith_project}")
+        logger.info(f"  Endpoint: {settings.langsmith_endpoint}")
+        logger.info(f"  Tracing V2: {settings.langsmith_tracing_v2}")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.warning(f"Failed to initialize LangSmith: {e}")
+        logger.warning("Application will continue without LangSmith tracing.")
+
+
 # Startup and Shutdown
 
 
@@ -365,6 +416,9 @@ async def startup_dependencies() -> None:
 
     # Initialize LLM client (based on configured provider)
     await init_llm()
+
+    # Initialize LangSmith tracing (if enabled)
+    await init_langsmith()
 
     logger.info("All dependencies initialized successfully")
 

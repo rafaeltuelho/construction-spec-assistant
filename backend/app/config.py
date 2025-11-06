@@ -97,12 +97,17 @@ class Settings(BaseSettings):
     ollama_model: Optional[str] = Field(default=None, description="Ollama model name")
 
     # LangSmith Settings (optional)
+    langsmith_enabled: bool = Field(default=False, description="Enable LangSmith tracing")
     langsmith_api_key: Optional[str] = Field(
         default=None, description="LangSmith API key for tracing"
     )
     langsmith_project: Optional[str] = Field(
         default="construction-spec-assistant", description="LangSmith project name"
     )
+    langsmith_endpoint: str = Field(
+        default="https://api.smith.langchain.com", description="LangSmith API endpoint"
+    )
+    langsmith_tracing_v2: bool = Field(default=True, description="Enable LangSmith tracing v2")
 
     # Document Processing Settings
     max_file_size_mb: int = Field(default=50, description="Maximum file size in MB")

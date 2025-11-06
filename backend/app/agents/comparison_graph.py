@@ -8,6 +8,7 @@ facts against submittal documents using RAG retrieval and LLM comparison.
 from typing import TypedDict, List, Dict, Any, Union
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langchain_together import ChatTogether
 from langgraph.graph import StateGraph, END
@@ -142,10 +143,35 @@ async def compare_node(
             context=context,
         )
 
-        # Call LLM
+        # Call LLM with LangSmith metadata
         messages = [SystemMessage(content=COMPARISON_SYSTEM_PROMPT), HumanMessage(content=prompt)]
 
-        response = await llm_client.ainvoke(messages)
+        # Add LangSmith metadata for tracing
+        config = RunnableConfig(
+            tags=[
+                "comparison-agent",
+                f"spec:{spec_fact.get('fact_id', spec_fact.get('id', 'unknown'))}",
+                "verdict-check",
+            ],
+            metadata={
+                "operation": "spec_comparison",
+                "spec_fact_id": spec_fact.get("fact_id", spec_fact.get("id")),
+                "entity_type": entity.get("type"),
+                "entity_name": entity.get("name"),
+                "attribute": attribute_str,
+                "operator": operator,
+                "expected_value": value_str,
+                "num_retrieved_chunks": len(retrieved_docs),
+                "avg_relevance_score": sum(
+                    doc.metadata.get("relevance_score", 0) for doc in retrieved_docs
+                )
+                / len(retrieved_docs)
+                if retrieved_docs
+                else 0,
+            },
+        )
+
+        response = await llm_client.ainvoke(messages, config=config)
 
         # Parse JSON response
         try:
