@@ -66,7 +66,7 @@ export function ComparisonResultCard({
 
       // Populate note text with source_span if available and note is empty
       if (!noteText && factData?.context?.source_span) {
-        setNoteText(factData.context.source_span);
+        setNoteText(`Please verify: ${factData.context.source_span}`);
       }
 
       setShowNoteInput(true);
