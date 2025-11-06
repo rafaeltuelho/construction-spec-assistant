@@ -207,6 +207,13 @@ export interface ComparisonResult {
   retrieved_chunks: RetrievedChunk[];
   retrieval_strategy: string;
   compared_at: string;
+  user_annotation?: {
+    comparison_id: string;
+    annotation_type: AnnotationType;
+    note_text?: string;
+    annotated_by?: string;
+    annotated_at: string;
+  };
 }
 
 export interface ComparisonSummary {

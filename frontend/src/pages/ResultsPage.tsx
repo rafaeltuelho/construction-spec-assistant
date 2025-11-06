@@ -23,6 +23,19 @@ export function ResultsPage() {
         setLoading(true);
         const data = await getComparisonStatus(jobId);
         setComparisonData(data);
+
+        // Initialize savedAnnotations from backend data
+        const initialSavedAnnotations = new Map<string, UserAnnotation>();
+        data.comparisons.forEach((comparison) => {
+          if (comparison.user_annotation) {
+            initialSavedAnnotations.set(comparison.comparison_id, {
+              comparison_id: comparison.user_annotation.comparison_id,
+              annotation_type: comparison.user_annotation.annotation_type,
+              note_text: comparison.user_annotation.note_text,
+            });
+          }
+        });
+        setSavedAnnotations(initialSavedAnnotations);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load results');
       } finally {

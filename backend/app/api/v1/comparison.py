@@ -448,6 +448,27 @@ async def get_document_comparison_status(
         if job_id in _document_jobs:
             job = _document_jobs[job_id]
             logger.debug(f"Job found in memory: job_id={job_id}")
+
+            # For in-memory jobs, also fetch annotations from MongoDB if available
+            from app.db.mongodb import get_document_comparison_result
+
+            comparison_result = await get_document_comparison_result(db, job_id)
+            if comparison_result and comparison_result.annotations:
+                # Populate user_annotation field in each comparison
+                comparisons_with_annotations = []
+                for comparison in job.comparisons:
+                    annotation = None
+                    if comparison.comparison_id in comparison_result.annotations:
+                        annotation_list = comparison_result.annotations[comparison.comparison_id]
+                        if annotation_list:
+                            annotation = annotation_list[-1]
+
+                    comparison_dict = comparison.model_dump()
+                    comparison_dict["user_annotation"] = annotation
+                    comparisons_with_annotations.append(ComparisonResult(**comparison_dict))
+
+                # Update job with annotated comparisons
+                job = job.model_copy(update={"comparisons": comparisons_with_annotations})
         else:
             # Fall back to MongoDB for persistence across restarts
             from app.db.mongodb import get_document_comparison_result
@@ -455,6 +476,25 @@ async def get_document_comparison_status(
             comparison_result = await get_document_comparison_result(db, job_id)
 
             if comparison_result:
+                # Populate user_annotation field in each comparison
+                comparisons_with_annotations = []
+                for comparison in comparison_result.comparisons:
+                    # Get the most recent annotation for this comparison
+                    annotation = None
+                    if (
+                        comparison_result.annotations
+                        and comparison.comparison_id in comparison_result.annotations
+                    ):
+                        annotation_list = comparison_result.annotations[comparison.comparison_id]
+                        if annotation_list:
+                            # Get the most recent annotation (last in list)
+                            annotation = annotation_list[-1]
+
+                    # Create a copy of the comparison with the annotation
+                    comparison_dict = comparison.model_dump()
+                    comparison_dict["user_annotation"] = annotation
+                    comparisons_with_annotations.append(ComparisonResult(**comparison_dict))
+
                 # Convert DocumentComparisonResult to DocumentComparisonStatus
                 job = DocumentComparisonStatus(
                     job_id=comparison_result.job_id,
@@ -464,7 +504,7 @@ async def get_document_comparison_status(
                     completed_facts=comparison_result.completed_facts,
                     status=comparison_result.status,
                     summary=comparison_result.summary,
-                    comparisons=comparison_result.comparisons,
+                    comparisons=comparisons_with_annotations,
                     error=comparison_result.error,
                     created_at=comparison_result.created_at,
                     completed_at=comparison_result.completed_at,

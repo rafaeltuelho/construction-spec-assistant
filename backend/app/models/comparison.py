@@ -99,6 +99,7 @@ class ComparisonResult(BaseModel):
         retrieved_chunks: Chunks retrieved for comparison
         retrieval_strategy: Retrieval strategy used
         compared_at: Timestamp of comparison
+        user_annotation: User annotation for this comparison (if any)
     """
 
     comparison_id: str = Field(..., description="Unique comparison identifier")
@@ -118,6 +119,9 @@ class ComparisonResult(BaseModel):
     retrieval_strategy: str = Field(..., description="Retrieval strategy used")
     compared_at: datetime = Field(
         default_factory=datetime.utcnow, description="Timestamp of comparison"
+    )
+    user_annotation: Optional[UserAnnotation] = Field(
+        None, description="User annotation for this comparison (if any)"
     )
 
 
