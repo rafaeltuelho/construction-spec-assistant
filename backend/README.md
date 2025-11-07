@@ -342,6 +342,34 @@ pip install package-name
 # Don't forget to update pyproject.toml
 ```
 
+### Utility Scripts
+
+The `backend/scripts/` directory contains utility scripts for development and testing.
+
+#### MongoDB Cleanup Script
+
+Clean up MongoDB collections for testing purposes:
+
+```bash
+# From project root - Interactive mode (with confirmation)
+uv run python backend/scripts/cleanup_mongodb.py
+
+# From project root - Non-interactive mode (skip confirmation)
+uv run python backend/scripts/cleanup_mongodb.py --yes
+
+# From backend directory
+cd backend
+uv run python scripts/cleanup_mongodb.py
+```
+
+This script will:
+- Connect to MongoDB using your application configuration
+- Display current document counts for all collections
+- Delete all documents from: chunks, document_comparison_results, documents, facts, sections
+- Provide a summary of deleted documents
+
+See `backend/scripts/README.md` for more details.
+
 ## Health Check
 
 Check if the application is running:
