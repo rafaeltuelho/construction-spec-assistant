@@ -146,6 +146,12 @@ class Settings(BaseSettings):
     comparison_max_retries: int = Field(
         default=3, description="Maximum retries for comparison agent"
     )
+    comparison_max_concurrency: int = Field(
+        default=5, description="Maximum concurrent comparisons (parallel execution)"
+    )
+    comparison_enable_parallel: bool = Field(
+        default=True, description="Enable parallel execution using Supervisor Agent"
+    )
 
     @field_validator("llm_provider")
     @classmethod

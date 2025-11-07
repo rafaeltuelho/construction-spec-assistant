@@ -56,6 +56,8 @@ async def run_document_comparison(
     submittal_document_id: str,
     retrieval_strategy: str,
     top_k: int,
+    max_concurrency: int,
+    enable_parallel: bool,
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
     llm_client: LLMClient,
@@ -69,6 +71,8 @@ async def run_document_comparison(
         submittal_document_id: Submittal document ID
         retrieval_strategy: Retrieval strategy (dense, sparse, ensemble)
         top_k: Number of chunks to retrieve
+        max_concurrency: Maximum concurrent comparisons
+        enable_parallel: Enable parallel execution
         db: MongoDB database instance
         qdrant_client: Qdrant client instance
         llm_client: OpenAI LLM client
@@ -96,6 +100,8 @@ async def run_document_comparison(
             llm_client=llm_client,
             retrieval_strategy=retrieval_strategy,
             top_k=top_k,
+            max_concurrency=max_concurrency,
+            enable_parallel=enable_parallel,
             progress_callback=update_progress,
         )
 
@@ -371,6 +377,8 @@ async def compare_document_to_submittal_endpoint(
             submittal_document_id=request.submittal_document_id,
             retrieval_strategy=request.retrieval_strategy,
             top_k=request.top_k,
+            max_concurrency=request.max_concurrency,
+            enable_parallel=request.enable_parallel,
             db=db,
             qdrant_client=qdrant_client,
             llm_client=llm_client,

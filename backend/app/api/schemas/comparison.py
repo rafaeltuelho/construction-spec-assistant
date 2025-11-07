@@ -89,6 +89,12 @@ class CompareDocumentRequest(BaseModel):
         default="ensemble", description="Retrieval strategy: 'dense', 'sparse', or 'ensemble'"
     )
     top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve per fact")
+    max_concurrency: int = Field(
+        default=5, ge=1, le=20, description="Maximum concurrent comparisons (parallel execution)"
+    )
+    enable_parallel: bool = Field(
+        default=True, description="Enable parallel execution using Supervisor Agent"
+    )
 
 
 class DocumentComparisonResponse(BaseModel):
