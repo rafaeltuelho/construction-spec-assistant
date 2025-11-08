@@ -120,7 +120,86 @@ class ComparisonState(TypedDict):
    - Any unexpected error during comparison
    - Defaults to "unclear" for safety
 
-### 1.3 Current Prompt Analysis
+### 1.3 Manufacturer Information Limitation
+
+**Critical Issue**: The `spec_fact.entity.manufacturer` field is currently **always `null`** in extracted facts.
+
+**Root Cause Analysis**:
+
+1. **Fact Extraction Process** (`backend/app/services/fact_extraction.py`):
+   - Facts are extracted from individual document chunks (lines 111-222)
+   - Each chunk is processed independently by the LLM
+   - The LLM prompt (`FACT_EXTRACTOR_SYSTEM_PROMPT`) instructs extraction of `entity.manufacturer`
+   - However, **manufacturer information is typically NOT present in the same chunk as technical requirements**
+
+2. **Construction Specification Structure** (CSI MasterFormat):
+   - **PART 1 - GENERAL**: Administrative requirements, submittals, quality assurance
+   - **PART 2 - PRODUCTS**: Product specifications, **manufacturer listings**, materials
+   - **PART 3 - EXECUTION**: Installation, field quality control, protection
+
+3. **Manufacturer Information Location**:
+   - Manufacturers are listed in dedicated sections like "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"
+   - Example from `experimental_data/parsed/spec.facts.canonical.jsonl`:
+     ```json
+     {
+       "entity": {"type": "elevator", "manufacturer": "ThyssenKrupp Elevator"},
+       "attribute": {"raw": "manufacturers", "canonical": "Manufacturers"},
+       "value": {"raw": "ThyssenKrupp Elevator", "type": "text"},
+       "context": {
+         "section_id": "sec-part-2-products-2-1-hydraulic-elevator-manufacturers-cc83daa0",
+         "header_path": ["PART 2 - PRODUCTS", "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"],
+         "source_span": "provide products by the following: 1. ThyssenKrupp Elevator."
+       }
+     }
+     ```
+   - Technical requirements are in separate sections like "2.6 DOOR-REOPENING DEVICES"
+   - Example from same file:
+     ```json
+     {
+       "entity": {"type": "elevator", "name": "door-reopening device", "manufacturer": null},
+       "attribute": {"raw": "uniform array of 36 or more microprocessor-controlled, infrared light beams"},
+       "value": {"raw": "36", "type": "quantity", "num": 36.0, "unit": "beams"},
+       "context": {
+         "section_id": "sec-part-2-products-2-6-door-reopening-devices-f0a97009",
+         "header_path": ["PART 2 - PRODUCTS", "2.6 DOOR-REOPENING DEVICES"]
+       }
+     }
+     ```
+
+**Example Manufacturer Section**:
+```
+2.1 HYDRAULIC ELEVATOR MANUFACTURERS
+
+A. Manufacturers: Subject to compliance with requirements, provide products by the following:
+   1. ThyssenKrupp Elevator.
+   2. Otis Elevator Company.
+   3. KONE Inc.
+   4. Schindler Elevator Corporation.
+
+B. Substitutions: Requests for substitution will be considered in accordance with
+   Section 01 25 00 - Substitution Procedures.
+```
+
+**Impact on Web Search**:
+- Web search query construction (Section 3.3) relies on manufacturer information
+- Without manufacturer, queries are less specific:
+  - Generic: "elevator door-reopening device infrared light beams specifications"
+- With manufacturer, queries are more targeted:
+  - Specific: "Otis elevator door-reopening device infrared light beams specifications"
+- **Result**: Lower quality web search results, reduced effectiveness of web search enhancement
+
+**Frequency** (based on analysis of `experimental_data/parsed/spec.facts.canonical.jsonl`):
+- Total facts: ~100
+- Facts with manufacturer: ~1-2 (only from manufacturer listing sections)
+- Facts without manufacturer: ~98-99 (all technical requirements)
+- **Manufacturer null rate**: ~98-99%
+
+**Proposed Solution** (detailed in Section 2.6):
+- Extract manufacturer mappings from PART 2 - PRODUCTS manufacturer sections
+- Associate manufacturers with facts based on entity type and section hierarchy
+- Enrich facts with manufacturer information during or after fact extraction
+
+### 1.4 Current Prompt Analysis
 
 **System Prompt** (`backend/app/agents/prompts.py`, lines 86-115):
 
@@ -179,7 +258,7 @@ Provide ONLY the JSON response, no additional text.
 
 **Key Observation**: The current prompt is **conservative** and instructs the LLM to use "unclear" when information is missing or ambiguous. This is good for precision but results in many "unclear" verdicts that could potentially be resolved with additional context.
 
-### 1.4 Verdict Distribution Analysis
+### 1.5 Verdict Distribution Analysis
 
 Based on the Jupyter Notebook evaluation (lines 3761-3762):
 ```python
@@ -250,14 +329,14 @@ def should_web_search(state: ComparisonState) -> str:
 ```python
 class ComparisonState(TypedDict):
     """Enhanced state for comparison workflow with web search."""
-    
+
     # Existing fields
     spec_fact: Dict[str, Any]          # Input specification fact
     query: Union[str, QueryTerms]      # Query for retrieval
     retrieved_docs: List[Document]     # Retrieved submittal chunks
-    result: Dict[str, Any]             # Final comparison result
+    result: Dict[str, Any]             # Final comparison result (see 2.5 for schema)
     error: str                         # Error message if any
-    
+
     # New fields for web search
     web_search_enabled: bool           # Enable web search for unclear verdicts
     web_search_results: List[Dict[str, Any]]  # Web search results
@@ -267,6 +346,8 @@ class ComparisonState(TypedDict):
     web_search_query: str              # Query used for web search
     web_search_error: str              # Error during web search (if any)
 ```
+
+**Note**: The `result` dictionary schema is enhanced with new fields when web search is used. See Section 2.5 for complete schema definition.
 
 ### 2.3 New Nodes
 
@@ -426,6 +507,401 @@ async def re_evaluate_node(
         logger.error(f"Re-evaluation failed: {e}", exc_info=True)
         # Keep original verdict on error
         return state
+```
+
+### 2.5 API Response Schema Changes
+
+**New Fields in Comparison Result**:
+
+The re-evaluation node introduces new fields in the comparison result that provide additional context about web search usage and evidence sources.
+
+#### 2.5.1 Enhanced ComparisonResult Schema
+
+**Current Schema** (`backend/app/models/comparison.py`, lines 87-126):
+```python
+class ComparisonResult(BaseModel):
+    """Individual fact comparison result."""
+
+    comparison_id: str
+    spec_fact: Dict[str, Any]
+    submittal_document_id: str
+    verdict: str                    # "consistent", "inconsistent", or "unclear"
+    confidence: float               # 0.0 to 1.0
+    submittal_evidence: str         # Direct quote from submittal
+    reasoning: str                  # Explanation of the verdict
+    retrieved_chunks: List[RetrievedChunk]
+    retrieval_strategy: str
+    compared_at: datetime
+    user_annotation: Optional[UserAnnotation]
+```
+
+**Enhanced Schema** (with web search fields):
+```python
+class ComparisonResult(BaseModel):
+    """Individual fact comparison result."""
+
+    # Existing fields
+    comparison_id: str
+    spec_fact: Dict[str, Any]
+    submittal_document_id: str
+    verdict: str                    # "consistent", "inconsistent", or "unclear"
+    confidence: float               # 0.0 to 1.0
+    submittal_evidence: str         # Direct quote from submittal
+    reasoning: str                  # Explanation of the verdict
+    retrieved_chunks: List[RetrievedChunk]
+    retrieval_strategy: str
+    compared_at: datetime
+    user_annotation: Optional[UserAnnotation]
+
+    # New fields for web search (optional/nullable)
+    web_search_used: Optional[bool] = Field(
+        None, description="Whether web search was used for this comparison"
+    )
+    web_evidence: Optional[str] = Field(
+        None, description="Relevant information from web sources (if web search was used)"
+    )
+    primary_source: Optional[str] = Field(
+        None, description="Primary evidence source: 'submittal', 'web', 'both', or 'neither'"
+    )
+    web_sources: Optional[List[Dict[str, str]]] = Field(
+        None, description="List of web sources used (title and URL)"
+    )
+```
+
+#### 2.5.2 Backward Compatibility
+
+**Design Principle**: New fields are **optional/nullable** to maintain backward compatibility with existing comparison results.
+
+**Compatibility Matrix**:
+
+| Scenario | web_search_used | web_evidence | primary_source | web_sources |
+|----------|----------------|--------------|----------------|-------------|
+| **No web search** (original flow) | `null` or `false` | `null` | `null` | `null` |
+| **Web search enabled, verdict not unclear** | `false` | `null` | `null` | `null` |
+| **Web search used, resolved** | `true` | "..." | "web" or "both" | `[{...}]` |
+| **Web search used, still unclear** | `true` | "..." | "neither" | `[{...}]` |
+
+**Database Migration**: No migration required since fields are optional. Existing documents will simply not have these fields.
+
+#### 2.5.3 Example Response Payloads
+
+**Example 1: Comparison Without Web Search**
+```json
+{
+  "comparison_id": "cmp-123",
+  "spec_fact": {
+    "entity": {"type": "elevator", "manufacturer": null},
+    "attribute": {"raw": "capacity"},
+    "value": {"raw": "3500 lbs", "num": 3500, "unit": "lbs"}
+  },
+  "submittal_document_id": "sub-456",
+  "verdict": "consistent",
+  "confidence": 0.95,
+  "submittal_evidence": "Elevator capacity: 3500 lbs",
+  "reasoning": "Submittal explicitly states capacity of 3500 lbs, matching specification requirement.",
+  "retrieved_chunks": [...],
+  "retrieval_strategy": "ensemble",
+  "compared_at": "2025-11-07T10:30:00Z",
+  "user_annotation": null,
+  "web_search_used": false,
+  "web_evidence": null,
+  "primary_source": null,
+  "web_sources": null
+}
+```
+
+**Example 2: Comparison With Web Search (Resolved)**
+```json
+{
+  "comparison_id": "cmp-789",
+  "spec_fact": {
+    "entity": {"type": "elevator", "manufacturer": "Otis or equivalent"},
+    "attribute": {"raw": "emergency callback response time"},
+    "value": {"raw": "2 hours", "num": 2, "unit": "hours"}
+  },
+  "submittal_document_id": "sub-456",
+  "verdict": "consistent",
+  "confidence": 0.75,
+  "submittal_evidence": "Emergency callback service available",
+  "reasoning": "Submittal mentions emergency callback service. Web sources confirm Otis standard response time is 2 hours, which matches the specification requirement.",
+  "retrieved_chunks": [...],
+  "retrieval_strategy": "ensemble",
+  "compared_at": "2025-11-07T10:35:00Z",
+  "user_annotation": null,
+  "web_search_used": true,
+  "web_evidence": "Otis Service Manual states: 'Standard emergency callback response time: 2 hours for all elevator models.'",
+  "primary_source": "both",
+  "web_sources": [
+    {
+      "title": "Otis Elevator Service Manual",
+      "url": "https://www.otis.com/en/us/products-services/service/callback"
+    },
+    {
+      "title": "ASME A17.1 Emergency Callback Requirements",
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/a17-1"
+    }
+  ]
+}
+```
+
+**Example 3: Comparison With Web Search (Still Unclear)**
+```json
+{
+  "comparison_id": "cmp-101",
+  "spec_fact": {
+    "entity": {"type": "elevator", "manufacturer": null},
+    "attribute": {"raw": "ASME A17.1 compliance"},
+    "value": {"raw": "compliant", "type": "boolean"}
+  },
+  "submittal_document_id": "sub-456",
+  "verdict": "unclear",
+  "confidence": 0.3,
+  "submittal_evidence": "Meets all applicable codes",
+  "reasoning": "Submittal states 'meets all applicable codes' but does not explicitly mention ASME A17.1. Web sources provide information about ASME A17.1 standard but do not confirm whether the submittal product specifically complies.",
+  "retrieved_chunks": [...],
+  "retrieval_strategy": "ensemble",
+  "compared_at": "2025-11-07T10:40:00Z",
+  "user_annotation": null,
+  "web_search_used": true,
+  "web_evidence": "ASME A17.1 is the Safety Code for Elevators and Escalators, covering design, construction, installation, operation, inspection, testing, maintenance, alteration, and repair of elevators.",
+  "primary_source": "neither",
+  "web_sources": [
+    {
+      "title": "ASME A17.1 Safety Code Overview",
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/a17-1"
+    }
+  ]
+}
+```
+
+#### 2.5.4 Frontend Integration Considerations
+
+**Display Requirements**:
+
+1. **Web Evidence Section**: Show `web_evidence` in a separate expandable section
+2. **Source Badges**: Display `primary_source` as visual indicators:
+   - "Submittal" badge (blue) when `primary_source == "submittal"`
+   - "Web" badge (green) when `primary_source == "web"`
+   - "Both" badge (purple) when `primary_source == "both"`
+   - "Neither" badge (gray) when `primary_source == "neither"`
+3. **Web Sources List**: Render `web_sources` as clickable links
+4. **Web Search Indicator**: Show icon/badge when `web_search_used == true`
+
+**TypeScript Interface** (example):
+```typescript
+interface ComparisonResult {
+  comparison_id: string;
+  spec_fact: SpecFact;
+  submittal_document_id: string;
+  verdict: "consistent" | "inconsistent" | "unclear";
+  confidence: number;
+  submittal_evidence: string;
+  reasoning: string;
+  retrieved_chunks: RetrievedChunk[];
+  retrieval_strategy: string;
+  compared_at: string;
+  user_annotation?: UserAnnotation;
+
+  // New optional fields
+  web_search_used?: boolean;
+  web_evidence?: string;
+  primary_source?: "submittal" | "web" | "both" | "neither";
+  web_sources?: Array<{title: string; url: string}>;
+}
+```
+
+### 2.6 Manufacturer Extraction Enhancement
+
+**Problem**: As identified in Section 1.3, manufacturer information is missing from ~98-99% of extracted facts because manufacturers are listed in separate sections from technical requirements.
+
+**Proposed Solution**: Implement a **post-processing enrichment step** that associates manufacturer information with facts based on entity type and document structure.
+
+#### 2.6.1 Approach: Post-Processing Enrichment
+
+**Rationale**:
+- **Least invasive**: Doesn't modify existing fact extraction logic
+- **Flexible**: Can be applied to existing extracted facts
+- **Maintainable**: Separate concern from core extraction
+- **Testable**: Easy to validate manufacturer associations
+
+**Alternative Approaches Considered**:
+1. **Preprocessing**: Extract manufacturers before fact extraction
+   - ❌ Requires passing manufacturer context to each chunk
+   - ❌ Increases prompt complexity
+2. **Enhanced Extraction**: Modify LLM prompt to look for manufacturers in other sections
+   - ❌ Requires multi-chunk context (expensive)
+   - ❌ May confuse LLM with irrelevant information
+3. **Post-Processing** (RECOMMENDED):
+   - ✅ Clean separation of concerns
+   - ✅ Works with existing extraction pipeline
+   - ✅ Easy to debug and validate
+
+#### 2.6.2 Implementation Design
+
+**Step 1: Extract Manufacturer Mappings**
+
+```python
+def extract_manufacturer_mappings(
+    facts: List[Fact],
+    document_chunks: List[DocumentChunk],
+) -> Dict[str, List[str]]:
+    """
+    Extract manufacturer mappings from PART 2 - PRODUCTS sections.
+
+    Args:
+        facts: All extracted facts from document
+        document_chunks: All document chunks
+
+    Returns:
+        Dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
+    """
+    manufacturer_mappings = defaultdict(list)
+
+    # Find facts from manufacturer listing sections
+    for fact in facts:
+        section_title = " > ".join(fact.context.header_path)
+
+        # Check if this is a manufacturer listing section
+        if "MANUFACTURERS" in section_title.upper() or "MANUFACTURER" in fact.attribute.raw.upper():
+            entity_type = fact.entity.type
+            manufacturer = fact.value.raw or fact.entity.manufacturer
+
+            if entity_type and manufacturer:
+                manufacturer_mappings[entity_type].append(manufacturer)
+                logger.info(f"Found manufacturer mapping: {entity_type} -> {manufacturer}")
+
+    return dict(manufacturer_mappings)
+```
+
+**Step 2: Enrich Facts with Manufacturer Information**
+
+```python
+def enrich_facts_with_manufacturers(
+    facts: List[Fact],
+    manufacturer_mappings: Dict[str, List[str]],
+) -> List[Fact]:
+    """
+    Enrich facts with manufacturer information based on entity type.
+
+    Args:
+        facts: Facts to enrich
+        manufacturer_mappings: Entity type -> manufacturers mapping
+
+    Returns:
+        Enriched facts with manufacturer information
+    """
+    enriched_facts = []
+
+    for fact in facts:
+        # Skip if manufacturer already set
+        if fact.entity.manufacturer:
+            enriched_facts.append(fact)
+            continue
+
+        # Look up manufacturers for this entity type
+        entity_type = fact.entity.type
+        manufacturers = manufacturer_mappings.get(entity_type, [])
+
+        if manufacturers:
+            # If multiple manufacturers, use first one (or could use "or equivalent")
+            # Note: This is a simplification; in reality, specs often list multiple acceptable manufacturers
+            fact.entity.manufacturer = manufacturers[0] if len(manufacturers) == 1 else f"{manufacturers[0]} or equivalent"
+            logger.debug(f"Enriched fact {fact.id} with manufacturer: {fact.entity.manufacturer}")
+
+        enriched_facts.append(fact)
+
+    return enriched_facts
+```
+
+**Step 3: Integration into Fact Extraction Pipeline**
+
+```python
+# In backend/app/services/fact_extraction.py
+
+async def harvest_facts_for_doc(
+    document_id: str,
+    chunks: List[DocumentChunk],
+    llm_client: Union[ChatOpenAI, ChatTogether],
+    entity_hints: Optional[Dict[str, str]] = None,
+    normalize: bool = True,
+    batch_size: int = 10,
+    progress_callback: Optional[callable] = None,
+    enrich_manufacturers: bool = True,  # NEW PARAMETER
+) -> List[Fact]:
+    """
+    Extract facts from all chunks in a document.
+
+    ... existing docstring ...
+
+    Args:
+        ... existing args ...
+        enrich_manufacturers: Whether to enrich facts with manufacturer information (default: True)
+    """
+    # ... existing extraction logic ...
+
+    # Normalize units if requested
+    if normalize:
+        all_facts = [normalize_fact_value(fact) for fact in all_facts]
+        logger.info(f"Normalized units for {len(all_facts)} facts")
+
+    # Deduplicate
+    all_facts = dedupe_facts(all_facts)
+
+    # NEW: Enrich with manufacturer information
+    if enrich_manufacturers:
+        manufacturer_mappings = extract_manufacturer_mappings(all_facts, chunks)
+        all_facts = enrich_facts_with_manufacturers(all_facts, manufacturer_mappings)
+        logger.info(f"Enriched facts with manufacturer information: {len(manufacturer_mappings)} entity types")
+
+    logger.info(f"Extracted {len(all_facts)} total facts from document {document_id}")
+
+    return all_facts
+```
+
+#### 2.6.3 Handling Multiple Manufacturers
+
+**Challenge**: Specifications often list multiple acceptable manufacturers (e.g., "ThyssenKrupp, Otis, KONE, or Schindler").
+
+**Options**:
+1. **Use first manufacturer**: Simple but may not be accurate
+2. **Use "or equivalent"**: Indicates multiple options (e.g., "ThyssenKrupp or equivalent")
+3. **Store all manufacturers**: Most accurate but complicates web search query construction
+4. **Use most common manufacturer**: Based on submittal document analysis
+
+**Recommendation**: Use **Option 2** ("or equivalent") for web search query construction, as it provides specificity while acknowledging alternatives.
+
+**Web Search Query Construction** (updated):
+```python
+def build_web_search_query(spec_fact: Dict[str, Any]) -> str:
+    """Build web search query from spec fact."""
+    entity = spec_fact.get("entity", {})
+    attribute = spec_fact.get("attribute", {})
+
+    entity_type = entity.get("type", "")
+    manufacturer = entity.get("manufacturer", "")
+
+    # Handle "or equivalent" manufacturers
+    if manufacturer and "or equivalent" in manufacturer.lower():
+        # Extract primary manufacturer (before "or equivalent")
+        manufacturer = manufacturer.split("or equivalent")[0].strip()
+
+    # Build query components
+    components = []
+    if manufacturer:
+        components.append(manufacturer)
+    if entity_type:
+        components.append(entity_type)
+
+    # Add attribute
+    attr_str = attribute.get("canonical") or attribute.get("raw", "")
+    if attr_str:
+        components.append(attr_str)
+
+    # Add "specifications" keyword
+    components.append("specifications")
+
+    query = " ".join(components)
+    return query[:200]  # Limit length
 ```
 
 ---
@@ -1331,25 +1807,60 @@ WHERE tags CONTAINS 'web-search-re-evaluation'
 
 ### Phase 2: Configuration and API Updates (Week 2)
 
-**Effort**: 2-3 days
+**Effort**: 3-4 days
 
 **Tasks**:
+
+**2.1 Request Schema Updates**:
 1. ✅ Update `backend/app/api/schemas/comparison.py`
    - Add `web_search_enabled` field to `CompareDocumentRequest`
    - Add `max_web_search_results` field
    - Add `web_search_timeout` field
-2. ✅ Update `backend/app/services/comparison.py`
+
+**2.2 Response Schema Updates** (NEW):
+2. ✅ Update `backend/app/models/comparison.py` (lines 87-126)
+   - Add `web_search_used: Optional[bool]` field to `ComparisonResult`
+   - Add `web_evidence: Optional[str]` field
+   - Add `primary_source: Optional[str]` field (enum: "submittal", "web", "both", "neither")
+   - Add `web_sources: Optional[List[Dict[str, str]]]` field
+   - Update docstrings to document new fields
+3. ✅ Update `backend/app/api/schemas/comparison.py`
+   - Ensure response schemas include new optional fields
+   - Add examples showing responses with and without web search
+
+**2.3 Service Layer Updates**:
+4. ✅ Update `backend/app/services/comparison.py`
    - Pass web search config to comparison graph
    - Update `compare_spec_to_submittal()` signature
    - Update `compare_document_to_submittal()` signature
-3. ✅ Update `backend/app/agents/supervisor_graph.py`
+   - Ensure new response fields are properly propagated
+5. ✅ Update `backend/app/agents/supervisor_graph.py`
    - Pass web search config to sub-agents
-4. ✅ Update API documentation
+   - Ensure new response fields are included in supervisor results
+
+**2.4 Manufacturer Extraction Enhancement** (NEW):
+6. ✅ Implement manufacturer extraction functions in `backend/app/services/fact_extraction.py`
+   - Add `extract_manufacturer_mappings()` function (see Section 2.6.2)
+   - Add `enrich_facts_with_manufacturers()` function
+   - Update `harvest_facts_for_doc()` to call enrichment functions
+   - Add `enrich_manufacturers: bool = True` parameter
+7. ✅ Update web search query construction in `backend/app/tools/web_search.py`
+   - Handle "or equivalent" manufacturers (see Section 2.6.3)
+   - Extract primary manufacturer before "or equivalent"
+   - Update `build_web_search_query()` function
+
+**2.5 Documentation Updates**:
+8. ✅ Update API documentation
    - Document new request parameters
+   - Document new response fields
    - Add examples with web search enabled/disabled
+   - Add examples showing new response fields
+   - Document manufacturer enrichment behavior
 
 **Deliverables**:
 - API endpoints support web search configuration
+- Response schemas include new web search fields
+- Manufacturer enrichment integrated into fact extraction
 - Environment variables for default settings
 - Updated OpenAPI documentation
 
@@ -1357,10 +1868,15 @@ WHERE tags CONTAINS 'web-search-re-evaluation'
 - API integration tests with web search enabled
 - API integration tests with web search disabled
 - Test configuration precedence (request > env > default)
+- Validate new response fields are present when web search is used
+- Test manufacturer extraction from PART 2 - PRODUCTS sections
+- Test manufacturer enrichment with multiple acceptable manufacturers
+- Test backward compatibility (old responses without new fields)
 
 **Risks**:
-- Backward compatibility with existing API clients
+- Backward compatibility with existing API clients (mitigated by optional fields)
 - Configuration validation
+- Manufacturer extraction accuracy (may require tuning)
 
 ---
 
@@ -1405,7 +1921,70 @@ WHERE tags CONTAINS 'web-search-re-evaluation'
 
 ---
 
-### Phase 4: Evaluation and Tuning (Week 4)
+### Phase 4: Frontend Integration (Week 3-4)
+
+**Effort**: 2-3 days
+
+**Tasks**:
+
+**4.1 TypeScript Type Updates**:
+1. ✅ Update TypeScript interfaces for comparison results
+   - Add `web_search_used?: boolean` field
+   - Add `web_evidence?: string` field
+   - Add `primary_source?: "submittal" | "web" | "both" | "neither"` field
+   - Add `web_sources?: Array<{title: string; url: string}>` field
+   - Ensure backward compatibility with existing results
+
+**4.2 UI Component Updates**:
+2. ✅ Update Comparison Results component
+   - Add expandable "Web Evidence" section (only shown when `web_evidence` is present)
+   - Display `web_evidence` text with proper formatting
+   - Add visual indicator when `web_search_used === true`
+3. ✅ Add Source Badge component
+   - Create badge component for `primary_source` display
+   - Blue badge for "submittal"
+   - Green badge for "web"
+   - Purple badge for "both"
+   - Gray badge for "neither"
+4. ✅ Add Web Sources List component
+   - Render `web_sources` as clickable links
+   - Display source title and URL
+   - Open links in new tab
+   - Show "No web sources" when array is empty
+
+**4.3 Enhanced Reasoning Display**:
+5. ✅ Update reasoning display
+   - Highlight web search contribution in reasoning text
+   - Show original verdict vs. re-evaluated verdict (if different)
+   - Add tooltip explaining how web search helped
+
+**4.4 Configuration UI** (Optional):
+6. ✅ Add web search toggle in comparison settings
+   - Allow users to enable/disable web search per comparison
+   - Show estimated additional cost when enabled
+   - Add help text explaining web search feature
+
+**Deliverables**:
+- Updated TypeScript types
+- Enhanced Comparison Results UI with web evidence display
+- Source badges and web sources list
+- (Optional) Web search configuration UI
+
+**Testing**:
+- Unit tests for new UI components
+- Visual regression tests for comparison results
+- Test rendering with and without web search fields
+- Test backward compatibility (old results without new fields)
+- Manual testing with real comparison results
+
+**Risks**:
+- UI/UX design decisions (may require design review)
+- Backward compatibility with existing frontend code
+- Performance impact of rendering additional fields
+
+---
+
+### Phase 5: Evaluation and Tuning (Week 4)
 
 **Effort**: 3-5 days
 
@@ -1507,6 +2086,134 @@ WHERE tags CONTAINS 'web-search-re-evaluation'
        assert "ADDITIONAL CONTEXT FROM WEB SEARCH" in context
        assert "Submittal info" in context
        assert "Web info" in context
+   ```
+
+4. **Manufacturer Extraction** (`test_manufacturer_extraction.py`) - NEW:
+   ```python
+   def test_extract_manufacturer_mappings():
+       facts = [
+           Fact(
+               id="fact-1",
+               entity=Entity(type="elevator", manufacturer="ThyssenKrupp Elevator"),
+               attribute=Attribute(raw="manufacturers"),
+               value=Value(raw="ThyssenKrupp Elevator", type="text"),
+               context=Context(
+                   section_id="sec-part-2-products-2-1-hydraulic-elevator-manufacturers",
+                   header_path=["PART 2 - PRODUCTS", "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"]
+               )
+           ),
+           Fact(
+               id="fact-2",
+               entity=Entity(type="elevator", manufacturer="Otis Elevator Company"),
+               attribute=Attribute(raw="manufacturers"),
+               value=Value(raw="Otis Elevator Company", type="text"),
+               context=Context(
+                   section_id="sec-part-2-products-2-1-hydraulic-elevator-manufacturers",
+                   header_path=["PART 2 - PRODUCTS", "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"]
+               )
+           ),
+           Fact(
+               id="fact-3",
+               entity=Entity(type="elevator", name="door-reopening device", manufacturer=None),
+               attribute=Attribute(raw="infrared light beams"),
+               value=Value(raw="36", type="quantity", num=36.0, unit="beams"),
+               context=Context(
+                   section_id="sec-part-2-products-2-6-door-reopening-devices",
+                   header_path=["PART 2 - PRODUCTS", "2.6 DOOR-REOPENING DEVICES"]
+               )
+           ),
+       ]
+
+       mappings = extract_manufacturer_mappings(facts, [])
+
+       assert "elevator" in mappings
+       assert len(mappings["elevator"]) == 2
+       assert "ThyssenKrupp Elevator" in mappings["elevator"]
+       assert "Otis Elevator Company" in mappings["elevator"]
+
+   def test_enrich_facts_with_manufacturers():
+       facts = [
+           Fact(
+               id="fact-1",
+               entity=Entity(type="elevator", name="door-reopening device", manufacturer=None),
+               attribute=Attribute(raw="infrared light beams"),
+               value=Value(raw="36", type="quantity", num=36.0, unit="beams"),
+               context=Context(section_id="sec-2-6", header_path=["PART 2 - PRODUCTS", "2.6 DOOR-REOPENING DEVICES"])
+           ),
+       ]
+
+       manufacturer_mappings = {
+           "elevator": ["ThyssenKrupp Elevator", "Otis Elevator Company"]
+       }
+
+       enriched_facts = enrich_facts_with_manufacturers(facts, manufacturer_mappings)
+
+       assert enriched_facts[0].entity.manufacturer == "ThyssenKrupp Elevator or equivalent"
+
+   def test_build_web_search_query_handles_or_equivalent():
+       spec_fact = {
+           "entity": {"type": "elevator", "manufacturer": "ThyssenKrupp or equivalent"},
+           "attribute": {"raw": "door-reopening device"},
+       }
+       query = build_web_search_query(spec_fact)
+
+       # Should extract primary manufacturer before "or equivalent"
+       assert "ThyssenKrupp" in query
+       assert "or equivalent" not in query
+       assert "elevator" in query
+       assert "door-reopening device" in query
+   ```
+
+5. **Response Field Validation** (`test_response_fields.py`) - NEW:
+   ```python
+   def test_comparison_result_with_web_search_fields():
+       result = ComparisonResult(
+           comparison_id="cmp-123",
+           spec_fact={...},
+           submittal_document_id="sub-456",
+           verdict="consistent",
+           confidence=0.85,
+           submittal_evidence="Submittal states...",
+           reasoning="Web sources confirm...",
+           retrieved_chunks=[],
+           retrieval_strategy="ensemble",
+           compared_at=datetime.now(),
+           user_annotation=None,
+           # New fields
+           web_search_used=True,
+           web_evidence="Manufacturer specs indicate...",
+           primary_source="both",
+           web_sources=[
+               {"title": "Otis Specs", "url": "https://otis.com/specs"}
+           ]
+       )
+
+       assert result.web_search_used is True
+       assert result.web_evidence is not None
+       assert result.primary_source == "both"
+       assert len(result.web_sources) == 1
+
+   def test_comparison_result_backward_compatibility():
+       # Old result without new fields should still work
+       result = ComparisonResult(
+           comparison_id="cmp-123",
+           spec_fact={...},
+           submittal_document_id="sub-456",
+           verdict="consistent",
+           confidence=0.95,
+           submittal_evidence="Submittal states...",
+           reasoning="Clear match",
+           retrieved_chunks=[],
+           retrieval_strategy="ensemble",
+           compared_at=datetime.now(),
+           user_annotation=None,
+           # New fields are optional/nullable
+       )
+
+       assert result.web_search_used is None
+       assert result.web_evidence is None
+       assert result.primary_source is None
+       assert result.web_sources is None
    ```
 
 ### 9.2 Integration Tests
@@ -1904,10 +2611,32 @@ This specification proposes enhancing the Comparison Agent Graph with a **web se
 1. Otis Service Manual: "Standard emergency callback response time: 2 hours"
 2. ASME A17.1: "Emergency callback service requirements"
 
-**Re-Evaluation**:
-- Enriched Context: Submittal + Web results
-- Verdict: "consistent" (web source confirms 2-hour standard)
-- Confidence: 0.75 (moderate, based on web source not submittal)
+**Re-Evaluation Result**:
+```json
+{
+  "verdict": "consistent",
+  "confidence": 0.75,
+  "submittal_evidence": "Emergency callback service available",
+  "web_evidence": "Otis Service Manual states: 'Standard emergency callback response time: 2 hours for all elevator models.'",
+  "reasoning": "Submittal mentions emergency callback service. Web sources confirm Otis standard response time is 2 hours, which matches the specification requirement.",
+  "primary_source": "both",
+  "web_search_used": true,
+  "web_sources": [
+    {
+      "title": "Otis Elevator Service Manual",
+      "url": "https://www.otis.com/en/us/products-services/service/callback"
+    },
+    {
+      "title": "ASME A17.1 Emergency Callback Requirements",
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/a17-1"
+    }
+  ]
+}
+```
+
+**Outcome**: ✅ **Resolved** - Web search successfully resolved the "unclear" verdict by providing manufacturer-specific response time information.
+
+---
 
 ### Scenario 2: Standards Compliance
 
@@ -1931,11 +2660,143 @@ This specification proposes enhancing the Comparison Agent Graph with a **web se
 1. ASME.org: "ASME A17.1 Safety Code for Elevators and Escalators"
 2. Elevator Industry Standards: "ASME A17.1 requirements overview"
 
-**Re-Evaluation**:
-- Enriched Context: Submittal + Web results
-- Verdict: "unclear" (web sources explain standard but don't confirm submittal compliance)
-- Confidence: 0.3 (still uncertain)
-- Reasoning: "Web sources provide information about ASME A17.1 standard but do not confirm whether the submittal product specifically complies."
+**Re-Evaluation Result**:
+```json
+{
+  "verdict": "unclear",
+  "confidence": 0.3,
+  "submittal_evidence": "Meets all applicable codes",
+  "web_evidence": "ASME A17.1 is the Safety Code for Elevators and Escalators, covering design, construction, installation, operation, inspection, testing, maintenance, alteration, and repair of elevators.",
+  "reasoning": "Submittal states 'meets all applicable codes' but does not explicitly mention ASME A17.1. Web sources provide information about ASME A17.1 standard but do not confirm whether the submittal product specifically complies.",
+  "primary_source": "neither",
+  "web_search_used": true,
+  "web_sources": [
+    {
+      "title": "ASME A17.1 Safety Code Overview",
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/a17-1"
+    }
+  ]
+}
+```
+
+**Outcome**: ⚠️ **Still Unclear** - Web search provided context about the standard but could not resolve the uncertainty about submittal compliance.
+
+---
+
+## Appendix B: Before/After Comparison Examples
+
+### Example 1: Without Web Search (Original Flow)
+
+**Comparison Result**:
+```json
+{
+  "comparison_id": "cmp-001",
+  "spec_fact": {
+    "entity": {"type": "elevator", "manufacturer": null},
+    "attribute": {"raw": "capacity"},
+    "value": {"raw": "3500 lbs", "num": 3500, "unit": "lbs"}
+  },
+  "submittal_document_id": "sub-456",
+  "verdict": "consistent",
+  "confidence": 0.95,
+  "submittal_evidence": "Elevator capacity: 3500 lbs",
+  "reasoning": "Submittal explicitly states capacity of 3500 lbs, matching specification requirement.",
+  "retrieved_chunks": [...],
+  "retrieval_strategy": "ensemble",
+  "compared_at": "2025-11-07T10:30:00Z",
+  "user_annotation": null,
+  "web_search_used": false,
+  "web_evidence": null,
+  "primary_source": null,
+  "web_sources": null
+}
+```
+
+**Notes**:
+- No web search needed (verdict was clear from submittal)
+- New fields are `null` or `false`
+- Backward compatible with existing frontend
+
+---
+
+### Example 2: With Web Search (Enhanced Flow)
+
+**Comparison Result**:
+```json
+{
+  "comparison_id": "cmp-002",
+  "spec_fact": {
+    "entity": {"type": "elevator", "manufacturer": "Otis or equivalent"},
+    "attribute": {"raw": "emergency callback response time"},
+    "value": {"raw": "2 hours", "num": 2, "unit": "hours"}
+  },
+  "submittal_document_id": "sub-456",
+  "verdict": "consistent",
+  "confidence": 0.75,
+  "submittal_evidence": "Emergency callback service available",
+  "reasoning": "Submittal mentions emergency callback service. Web sources confirm Otis standard response time is 2 hours, which matches the specification requirement.",
+  "retrieved_chunks": [...],
+  "retrieval_strategy": "ensemble",
+  "compared_at": "2025-11-07T10:35:00Z",
+  "user_annotation": null,
+  "web_search_used": true,
+  "web_evidence": "Otis Service Manual states: 'Standard emergency callback response time: 2 hours for all elevator models.'",
+  "primary_source": "both",
+  "web_sources": [
+    {
+      "title": "Otis Elevator Service Manual",
+      "url": "https://www.otis.com/en/us/products-services/service/callback"
+    },
+    {
+      "title": "ASME A17.1 Emergency Callback Requirements",
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/a17-1"
+    }
+  ]
+}
+```
+
+**Notes**:
+- Web search was triggered (initial verdict was "unclear")
+- New fields populated with web search data
+- `primary_source: "both"` indicates evidence from submittal AND web
+- Frontend can display web evidence section and source badges
+
+---
+
+### Example 3: Manufacturer Enrichment Impact
+
+**Before Manufacturer Enrichment**:
+```json
+{
+  "entity": {"type": "elevator", "name": "door-reopening device", "manufacturer": null},
+  "attribute": {"raw": "infrared light beams"},
+  "value": {"raw": "36", "num": 36.0, "unit": "beams"}
+}
+```
+
+**Web Search Query** (without manufacturer):
+```
+"elevator door-reopening device infrared light beams specifications"
+```
+
+**After Manufacturer Enrichment**:
+```json
+{
+  "entity": {"type": "elevator", "name": "door-reopening device", "manufacturer": "ThyssenKrupp or equivalent"},
+  "attribute": {"raw": "infrared light beams"},
+  "value": {"raw": "36", "num": 36.0, "unit": "beams"}
+}
+```
+
+**Web Search Query** (with manufacturer):
+```
+"ThyssenKrupp elevator door-reopening device infrared light beams specifications"
+```
+
+**Impact**:
+- More specific query targeting manufacturer documentation
+- Higher quality search results
+- Better chance of resolving "unclear" verdicts
 
 ---
 
