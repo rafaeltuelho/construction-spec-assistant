@@ -28,7 +28,8 @@ dist-ssr
 .venv/
 __pycache__/
 
-.vibe-log/
+.agent_logs/
+.ruff_cache/
 .ignore*
 .bkp
 experimental_data/

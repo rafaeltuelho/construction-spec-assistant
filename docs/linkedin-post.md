@@ -11,7 +11,7 @@ This is an **agentic AI system** designed to help Construction Architects and En
 
 ## The Solution
 🤖 Enters The Constructions Spec Assistant! 🤖 
-aAn AI-powered assistant for reviewing construction specifications and submittals. 
+An AI-powered assistant for reviewing construction specifications and submittals. 
 The system transforms unstructured construction documents into searchable, comparable data to automate the tedious process of submittal review for Architects.
 
 ## Key Features
