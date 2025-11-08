@@ -16,6 +16,12 @@ interface DocumentMetadata {
   document_type: DocumentType;
 }
 
+interface FactExtractionStats {
+  facts_extracted: number;
+  facts_deduplicated: number;
+  error?: string | null;
+}
+
 export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingStatusProps) {
   const [status, setStatus] = useState<string>('pending');
   const [progress, setProgress] = useState<number>(0);
@@ -25,6 +31,7 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
   const [documentMetadata, setDocumentMetadata] = useState<DocumentMetadata | null>(null);
   const [statsExpanded, setStatsExpanded] = useState(false);
   const [hasCalledOnComplete, setHasCalledOnComplete] = useState(false);
+  const [factExtractionStats, setFactExtractionStats] = useState<FactExtractionStats | null>(null);
 
   useEffect(() => {
     let intervalId: number;
@@ -69,6 +76,14 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
           setCurrentStage(`Processing chunks: ${response.progress?.chunks_processed || 0}/${response.progress?.total_chunks || 0}`);
 
           if (response.status === 'completed') {
+            // Capture fact extraction statistics when completed
+            if (response.facts_extracted !== undefined || response.facts_deduplicated !== undefined) {
+              setFactExtractionStats({
+                facts_extracted: response.facts_extracted || 0,
+                facts_deduplicated: response.facts_deduplicated || 0,
+                error: response.error || null,
+              });
+            }
             clearInterval(intervalId);
 
             // Only call onComplete once
@@ -205,6 +220,29 @@ export function ProcessingStatus({ type, id, onComplete, onError }: ProcessingSt
             </svg>
             <span className="text-sm font-medium">Processing complete</span>
           </div>
+
+          {/* Display fact extraction statistics for fact extraction jobs */}
+          {type === 'fact_extraction' && factExtractionStats && (
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <h5 className="text-xs font-semibold text-blue-900 mb-2">Fact Extraction Results</h5>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-blue-700">Facts Extracted:</span>
+                  <span className="font-medium text-blue-900">{factExtractionStats.facts_extracted}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-700">Facts Deduplicated:</span>
+                  <span className="font-medium text-blue-900">{factExtractionStats.facts_deduplicated}</span>
+                </div>
+                {factExtractionStats.error && (
+                  <div className="flex justify-between">
+                    <span className="text-red-700">Error:</span>
+                    <span className="font-medium text-red-900">{factExtractionStats.error}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Display processing statistics - Collapsible */}
           {processingStats && documentMetadata && (
