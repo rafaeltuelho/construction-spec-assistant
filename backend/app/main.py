@@ -17,7 +17,7 @@ from app.config import settings
 from app.dependencies import startup_dependencies, shutdown_dependencies
 from app.utils.logging import setup_logging, get_logger
 from app.utils.exceptions import ConstructionSpecAssistantError
-from app.api.v1 import health, documents
+from app.api.v1 import health, documents, config
 
 # Setup logging
 setup_logging(level=settings.log_level, log_format=settings.log_format)
@@ -168,6 +168,8 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 # Include routers
 app.include_router(health.router, prefix=settings.api_v1_prefix)
+
+app.include_router(config.router, prefix=settings.api_v1_prefix)
 
 app.include_router(documents.router, prefix=settings.api_v1_prefix)
 
