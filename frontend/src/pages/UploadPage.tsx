@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DocumentUpload } from '../components/DocumentUpload';
 import { ProcessingStatus } from '../components/ProcessingStatus';
+import { LLMBadge } from '../components/LLMBadge';
 import { uploadDocument, extractFacts, compareDocuments, getComparisonStatus } from '../services/api';
 import type { DocumentType, ComparisonSummary } from '../types/api';
 
@@ -145,11 +146,14 @@ export function UploadPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Construction Specification Assistant</h1>
-          <p className="mt-2 text-gray-600">
-            Upload your specification and submittal documents to compare and analyze compliance
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Construction Specification Assistant</h1>
+            <p className="mt-2 text-gray-600">
+              Upload your specification and submittal documents to compare and analyze compliance
+            </p>
+          </div>
+          <LLMBadge className="mt-1" />
         </div>
 
         {error && (

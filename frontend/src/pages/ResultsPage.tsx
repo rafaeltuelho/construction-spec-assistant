@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ComparisonResultCard } from '../components/ComparisonResultCard';
+import { LLMBadge } from '../components/LLMBadge';
 import { getComparisonStatus, saveAnnotations } from '../services/api';
 import type { ComparisonStatusResponse, ComparisonResult, UserAnnotation, AnnotationType } from '../types/api';
 
@@ -167,12 +168,15 @@ export function ResultsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Comparison Results</h1>
-          <p className="mt-2 text-gray-600">
-            Review the comparison analysis between specification and submittal documents
-          </p>
+        {/* Header with LLM Badge */}
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Comparison Results</h1>
+            <p className="mt-2 text-gray-600">
+              Review the comparison analysis between specification and submittal documents
+            </p>
+          </div>
+          <LLMBadge className="mt-1" />
         </div>
 
         {/* Summary Stats */}

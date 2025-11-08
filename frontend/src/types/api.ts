@@ -10,6 +10,12 @@ export type Verdict = 'consistent' | 'inconsistent' | 'unclear';
 
 export type AnnotationType = 'disregard' | 'confirmed' | 'note';
 
+// Configuration
+export interface LLMInfoResponse {
+  provider: string;
+  model: string;
+}
+
 // Document Upload
 export interface DocumentUploadRequest {
   file: File;

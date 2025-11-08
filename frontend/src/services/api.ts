@@ -15,6 +15,7 @@ import type {
   ErrorResponse,
   Fact,
   DocumentSection,
+  LLMInfoResponse,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -178,6 +179,12 @@ export async function saveReport(
 export async function healthCheck(): Promise<{ status: string; version: string; timestamp: string }> {
   const response = await fetch(`${API_BASE_URL.replace('/api/v1', '')}/health`);
   return handleResponse(response);
+}
+
+// Configuration
+export async function getLLMInfo(): Promise<LLMInfoResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/llm`);
+  return handleResponse<LLMInfoResponse>(response);
 }
 
 export { ApiError };
