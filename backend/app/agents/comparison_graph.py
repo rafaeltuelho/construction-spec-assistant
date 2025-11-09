@@ -250,24 +250,55 @@ async def compare_node(
 
 def build_web_search_query(spec_fact: Dict[str, Any]) -> str:
     """
-    Build web search query from spec fact.
+    Build web search query from spec fact with manufacturer information.
+
+    This function constructs an optimized search query for finding technical
+    specifications and documentation. It prioritizes manufacturer information
+    (when available) to make queries more specific and relevant.
 
     Strategy:
     1. Extract entity (product/component name)
-    2. Extract manufacturer (if present)
+    2. Extract manufacturer (if present, enriched by manufacturer extraction)
     3. Extract attribute (property being compared)
-    4. Combine into focused query
+    4. Handle "or equivalent" manufacturers (extract primary manufacturer)
+    5. Combine into focused query with "specifications" keyword
 
-    Examples:
-    - "Otis elevator emergency callback service response time specifications"
-    - "ASME A17.1 CSA B44 elevator safety code requirements"
-    - "Thyssenkrupp elevator capacity 3500 lbs specifications"
+    Manufacturer Handling:
+    - If manufacturer is present: Use "manufacturer + entity_type" (highest priority)
+    - If "or equivalent" suffix: Extract primary manufacturer before "or equivalent"
+    - Example: "ThyssenKrupp or equivalent" → "ThyssenKrupp"
+    - This provides specificity while acknowledging multiple acceptable manufacturers
+
+    Query Examples:
+    - With manufacturer: "Otis elevator emergency callback service response time specifications"
+    - With standard: "ASME A17.1 CSA B44 elevator safety code requirements"
+    - With capacity: "Thyssenkrupp elevator capacity 3500 lbs specifications"
+    - Generic: "elevator door reopening device specifications"
 
     Args:
-        spec_fact: Specification fact dictionary
+        spec_fact: Specification fact dictionary with entity, attribute, and value fields
+            Expected structure:
+            {
+                "entity": {
+                    "type": "elevator",
+                    "name": "door-reopening device",
+                    "manufacturer": "ThyssenKrupp or equivalent"  # Optional, enriched by manufacturer extraction
+                },
+                "attribute": {
+                    "raw": "infrared light beams",
+                    "canonical": "infrared_light_beams"
+                },
+                ...
+            }
 
     Returns:
-        Search query string (max 200 chars)
+        Search query string (max 200 chars, truncated at word boundary)
+
+    Note:
+        - Manufacturer information is populated by the manufacturer extraction enhancement
+          (see backend/app/services/fact_extraction.py: extract_manufacturer_mappings)
+        - Without manufacturer info, queries fall back to entity_name or entity_type
+        - Query length is limited to 200 chars for optimal search performance
     """
     entity = spec_fact.get("entity", {})
     attribute = spec_fact.get("attribute", {})
@@ -284,7 +315,8 @@ def build_web_search_query(spec_fact: Dict[str, Any]) -> str:
 
     # Add manufacturer + entity (highest priority)
     if manufacturer and entity_type:
-        # Handle "or equivalent" manufacturers
+        # Handle "or equivalent" manufacturers - extract primary manufacturer
+        # Example: "ThyssenKrupp or equivalent" → "ThyssenKrupp"
         if "or equivalent" in manufacturer.lower():
             manufacturer = manufacturer.split("or equivalent")[0].strip()
         query_parts.append(f"{manufacturer} {entity_type}")

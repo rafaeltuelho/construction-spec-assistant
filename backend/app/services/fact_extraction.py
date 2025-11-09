@@ -267,6 +267,139 @@ def dedupe_facts(facts: List[Fact]) -> List[Fact]:
     return deduplicated
 
 
+def extract_manufacturer_mappings(
+    facts: List[Fact],
+    document_chunks: List[DocumentChunk],
+) -> Dict[str, List[str]]:
+    """
+    Extract manufacturer mappings from PART 2 - PRODUCTS sections.
+
+    This function identifies manufacturer information from specification documents
+    by looking for facts in manufacturer listing sections (typically PART 2 - PRODUCTS).
+    It creates a mapping between entity types and their acceptable manufacturers.
+
+    Strategy:
+    1. Scan all facts for manufacturer listing sections (sections with "MANUFACTURERS" in title)
+    2. Extract entity type and manufacturer name from these facts
+    3. Build a dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
+
+    Args:
+        facts: All extracted facts from document
+        document_chunks: All document chunks (currently unused, reserved for future enhancements)
+
+    Returns:
+        Dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
+        Example: {"elevator": ["ThyssenKrupp", "Otis", "KONE"], "door": ["Stanley"]}
+
+    Example:
+        >>> facts = [
+        ...     Fact(entity=Entity(type="elevator", manufacturer="ThyssenKrupp"), ...),
+        ...     Fact(entity=Entity(type="elevator", manufacturer="Otis"), ...),
+        ... ]
+        >>> mappings = extract_manufacturer_mappings(facts, chunks)
+        >>> mappings
+        {"elevator": ["ThyssenKrupp", "Otis"]}
+    """
+    manufacturer_mappings = defaultdict(list)
+
+    # Find facts from manufacturer listing sections
+    for fact in facts:
+        section_title = " > ".join(fact.context.header_path)
+
+        # Check if this is a manufacturer listing section
+        # Look for "MANUFACTURERS" in section title or "MANUFACTURER" in attribute
+        if "MANUFACTURERS" in section_title.upper() or "MANUFACTURER" in fact.attribute.raw.upper():
+            entity_type = fact.entity.type
+            # Try to get manufacturer from value.raw first, then entity.manufacturer
+            manufacturer = fact.value.raw or fact.entity.manufacturer
+
+            if entity_type and manufacturer:
+                # Avoid duplicates in the list
+                if manufacturer not in manufacturer_mappings[entity_type]:
+                    manufacturer_mappings[entity_type].append(manufacturer)
+                    logger.info(f"Found manufacturer mapping: {entity_type} -> {manufacturer}")
+
+    logger.info(
+        f"Extracted {len(manufacturer_mappings)} entity type mappings with "
+        f"{sum(len(v) for v in manufacturer_mappings.values())} total manufacturers"
+    )
+
+    return dict(manufacturer_mappings)
+
+
+def enrich_facts_with_manufacturers(
+    facts: List[Fact],
+    manufacturer_mappings: Dict[str, List[str]],
+) -> List[Fact]:
+    """
+    Enrich facts with manufacturer information based on entity type.
+
+    This function associates manufacturer information with facts that are missing it.
+    It uses the manufacturer mappings extracted from PART 2 - PRODUCTS sections to
+    populate the entity.manufacturer field for facts based on their entity type.
+
+    Strategy:
+    1. For each fact without manufacturer information
+    2. Look up manufacturers for that entity type in the mappings
+    3. If single manufacturer: use it directly
+    4. If multiple manufacturers: use first one with "or equivalent" suffix
+    5. If no manufacturers found: leave as None
+
+    Args:
+        facts: Facts to enrich
+        manufacturer_mappings: Entity type -> manufacturers mapping from extract_manufacturer_mappings()
+
+    Returns:
+        Enriched facts with manufacturer information populated
+
+    Example:
+        >>> facts = [
+        ...     Fact(entity=Entity(type="elevator", manufacturer=None), ...),
+        ... ]
+        >>> mappings = {"elevator": ["ThyssenKrupp", "Otis"]}
+        >>> enriched = enrich_facts_with_manufacturers(facts, mappings)
+        >>> enriched[0].entity.manufacturer
+        "ThyssenKrupp or equivalent"
+
+    Note:
+        - Facts with existing manufacturer information are not modified
+        - The "or equivalent" suffix indicates multiple acceptable manufacturers
+        - This is a post-processing step that doesn't modify the original extraction logic
+    """
+    enriched_facts = []
+    enriched_count = 0
+
+    for fact in facts:
+        # Skip if manufacturer already set
+        if fact.entity.manufacturer:
+            enriched_facts.append(fact)
+            continue
+
+        # Look up manufacturers for this entity type
+        entity_type = fact.entity.type
+        manufacturers = manufacturer_mappings.get(entity_type, [])
+
+        if manufacturers:
+            # If single manufacturer, use it directly
+            # If multiple manufacturers, use first one with "or equivalent" suffix
+            if len(manufacturers) == 1:
+                fact.entity.manufacturer = manufacturers[0]
+            else:
+                fact.entity.manufacturer = f"{manufacturers[0]} or equivalent"
+
+            enriched_count += 1
+            logger.debug(f"Enriched fact {fact.id} with manufacturer: {fact.entity.manufacturer}")
+
+        enriched_facts.append(fact)
+
+    logger.info(
+        f"Enriched {enriched_count}/{len(facts)} facts with manufacturer information "
+        f"({len(manufacturer_mappings)} entity types)"
+    )
+
+    return enriched_facts
+
+
 async def harvest_facts_for_doc(
     document_id: str,
     chunks: List[DocumentChunk],
@@ -275,9 +408,16 @@ async def harvest_facts_for_doc(
     normalize: bool = True,
     batch_size: int = 10,
     progress_callback: Optional[callable] = None,
+    enrich_manufacturers: bool = True,
 ) -> List[Fact]:
     """
     Extract facts from all chunks in a document.
+
+    This function orchestrates the complete fact extraction pipeline:
+    1. Extract facts from chunks using LLM (in parallel batches)
+    2. Normalize units (if requested)
+    3. Deduplicate facts
+    4. Enrich with manufacturer information (if requested)
 
     Args:
         document_id: Document identifier
@@ -287,9 +427,20 @@ async def harvest_facts_for_doc(
         normalize: Whether to normalize units (default: True)
         batch_size: Number of concurrent extractions (default: 10)
         progress_callback: Optional callback function to report progress (chunks_processed, total_chunks, percentage)
+        enrich_manufacturers: Whether to enrich facts with manufacturer information (default: True)
 
     Returns:
-        List of all extracted facts (deduplicated)
+        List of all extracted facts (deduplicated and enriched)
+
+    Example:
+        >>> facts = await harvest_facts_for_doc(
+        ...     document_id="spec-123",
+        ...     chunks=chunks,
+        ...     llm_client=llm,
+        ...     entity_hints={"default": "elevator"},
+        ...     enrich_manufacturers=True
+        ... )
+        >>> # Facts now have manufacturer information populated
     """
     all_facts: List[Fact] = []
     total_chunks = len(chunks)
@@ -333,6 +484,15 @@ async def harvest_facts_for_doc(
 
     # Deduplicate
     all_facts = dedupe_facts(all_facts)
+
+    # Enrich with manufacturer information (post-processing step)
+    if enrich_manufacturers:
+        logger.info("Starting manufacturer enrichment...")
+        manufacturer_mappings = extract_manufacturer_mappings(all_facts, chunks)
+        all_facts = enrich_facts_with_manufacturers(all_facts, manufacturer_mappings)
+        logger.info(
+            f"Manufacturer enrichment complete: {len(manufacturer_mappings)} entity types mapped"
+        )
 
     logger.info(f"Extracted {len(all_facts)} total facts from document {document_id}")
 
