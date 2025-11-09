@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { DocumentUpload } from '../components/DocumentUpload';
 import { ProcessingStatus } from '../components/ProcessingStatus';
 import { LLMBadge } from '../components/LLMBadge';
@@ -27,6 +27,9 @@ export function UploadPage() {
   const [isComparing, setIsComparing] = useState(false);
   const [comparisonSummary, setComparisonSummary] = useState<ComparisonSummary | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+
+  // Ref to track if fact extraction has been triggered (prevents duplicate calls in React StrictMode)
+  const factExtractionTriggeredRef = useRef<Set<string>>(new Set());
 
   const handleUpload = async (type: 'spec' | 'submittal', file: File, documentType: DocumentType) => {
     setError(null);
@@ -66,11 +69,15 @@ export function UploadPage() {
     if (type === 'spec') {
       // Guard: Only trigger fact extraction if not already started
       // This prevents duplicate calls in React StrictMode (development)
-      if (doc.extractionJobId) {
-        console.log('Fact extraction already started, skipping duplicate call');
+      // Use ref instead of state to ensure the check works across StrictMode double-mounting
+      if (factExtractionTriggeredRef.current.has(doc.documentId)) {
+        console.log('Fact extraction already triggered for document', doc.documentId, '- skipping duplicate call');
         setSpecDocument(updatedDoc);
         return;
       }
+
+      // Mark as triggered BEFORE making the API call to prevent race conditions
+      factExtractionTriggeredRef.current.add(doc.documentId);
 
       try {
         const extractionResponse = await extractFacts({
@@ -83,6 +90,8 @@ export function UploadPage() {
         updatedDoc.extractionComplete = false;
         setSpecDocument(updatedDoc);
       } catch (err) {
+        // Remove from triggered set on error so user can retry
+        factExtractionTriggeredRef.current.delete(doc.documentId);
         setError(err instanceof Error ? err.message : 'Fact extraction failed');
       }
     } else {
