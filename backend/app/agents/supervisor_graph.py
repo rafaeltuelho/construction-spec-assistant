@@ -37,6 +37,7 @@ class SupervisorState(TypedDict):
     db: AsyncIOMotorDatabase
     qdrant_client: QdrantClient
     llm_client: Union[ChatOpenAI, ChatTogether]
+    search_tool: Optional[Any]  # Tavily search tool (optional)
 
     # Output
     results: List[Dict[str, Any]]  # Comparison results
@@ -74,6 +75,7 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
     db = state["db"]
     qdrant_client = state["qdrant_client"]
     llm_client = state["llm_client"]
+    search_tool = state.get("search_tool")  # Optional Tavily search tool
     progress_callback = state.get("progress_callback")
 
     total_facts = len(facts)
@@ -114,10 +116,30 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
             qdrant_client=qdrant_client,
         )
 
-        # Create shared comparison graph
+        # Create shared comparison graph with optional web search
         filters = {"document_id": submittal_document_id}
+
+        # Prepare web search configuration if search_tool is available
+        web_search_config = None
+        if search_tool is not None:
+            from app.config import settings
+
+            web_search_config = {
+                "max_results": settings.tavily_max_results,
+                "min_relevance_score": settings.tavily_min_relevance_score,
+            }
+            logger.info(
+                f"Web search enabled: max_results={settings.tavily_max_results}, "
+                f"min_relevance_score={settings.tavily_min_relevance_score}"
+            )
+
         comparison_graph = create_comparison_graph(
-            retriever=retriever, llm_client=llm_client, top_k=top_k, filters=filters
+            retriever=retriever,
+            llm_client=llm_client,
+            top_k=top_k,
+            filters=filters,
+            search_tool=search_tool,
+            web_search_config=web_search_config,
         )
 
         logger.info("Shared retriever and comparison graph created successfully")
@@ -155,13 +177,21 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
                 # ✅ Build query terms from fact
                 query_terms = build_query_terms_from_fact(fact)
 
-                # ✅ Use the SHARED comparison graph
+                # ✅ Use the SHARED comparison graph with optional web search
                 initial_state: ComparisonState = {
                     "spec_fact": fact,
                     "query": query_terms,
                     "retrieved_docs": [],
                     "result": {},
                     "error": "",
+                    # Web search fields (only used if search_tool is provided)
+                    "web_search_enabled": search_tool is not None,
+                    "web_search_results": [],
+                    "enriched_context": "",
+                    "retry_count": 0,
+                    "max_retries": 1,
+                    "web_search_query": "",
+                    "web_search_error": "",
                 }
 
                 # Run comparison through the shared graph
@@ -198,6 +228,11 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
                     ],
                     "retrieval_strategy": retrieval_strategy,
                     "compared_at": datetime.utcnow(),
+                    # Web search fields (optional, only present if web search was used)
+                    "web_search_used": comparison_result.get("web_search_used"),
+                    "web_evidence": comparison_result.get("web_evidence"),
+                    "primary_source": comparison_result.get("primary_source"),
+                    "web_sources": comparison_result.get("web_sources"),
                 }
 
                 # Update summary
@@ -319,6 +354,7 @@ async def run_supervisor_comparison(
     top_k: int = 5,
     max_concurrency: int = 5,
     progress_callback: Optional[callable] = None,
+    search_tool: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Run parallel fact comparison using the Supervisor Agent.
@@ -336,12 +372,14 @@ async def run_supervisor_comparison(
         top_k: Number of documents to retrieve per fact
         max_concurrency: Maximum concurrent comparisons (default: 5)
         progress_callback: Optional progress callback function
+        search_tool: Optional Tavily search tool for web search enhancement
 
     Returns:
         Dict with results, summary, and metadata
     """
     logger.info(
-        f"Starting supervisor comparison: {len(facts)} facts, max_concurrency={max_concurrency}"
+        f"Starting supervisor comparison: {len(facts)} facts, max_concurrency={max_concurrency}, "
+        f"web_search_enabled={search_tool is not None}"
     )
 
     # Create graph
@@ -357,6 +395,7 @@ async def run_supervisor_comparison(
         "db": db,
         "qdrant_client": qdrant_client,
         "llm_client": llm_client,
+        "search_tool": search_tool,
         "results": [],
         "summary": {"consistent": 0, "inconsistent": 0, "unclear": 0},
         "completed": 0,

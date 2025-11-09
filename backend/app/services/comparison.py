@@ -36,6 +36,7 @@ async def compare_spec_to_submittal(
     llm_client: Union[ChatOpenAI, ChatTogether],
     retrieval_strategy: str = "ensemble",
     top_k: int = 5,
+    search_tool: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Compare a specification fact against a submittal document.
@@ -48,6 +49,7 @@ async def compare_spec_to_submittal(
         llm_client: OpenAI LLM client
         retrieval_strategy: "dense", "sparse", or "ensemble" (default)
         top_k: Number of documents to retrieve
+        search_tool: Optional Tavily search tool for web search enhancement
 
     Returns:
         Comparison result dict with verdict, confidence, evidence, reasoning
@@ -77,10 +79,26 @@ async def compare_spec_to_submittal(
             qdrant_client=qdrant_client,
         )
 
-        # Create comparison graph
+        # Create comparison graph with optional web search
         filters = {"document_id": submittal_document_id}
+
+        # Prepare web search configuration if search_tool is available
+        web_search_config = None
+        if search_tool is not None:
+            from app.config import settings
+
+            web_search_config = {
+                "max_results": settings.tavily_max_results,
+                "min_relevance_score": settings.tavily_min_relevance_score,
+            }
+
         graph = create_comparison_graph(
-            retriever=retriever, llm_client=llm_client, top_k=top_k, filters=filters
+            retriever=retriever,
+            llm_client=llm_client,
+            top_k=top_k,
+            filters=filters,
+            search_tool=search_tool,
+            web_search_config=web_search_config,
         )
 
         # Run comparison - pass QueryTerms object to support different query formats
@@ -90,6 +108,14 @@ async def compare_spec_to_submittal(
             "retrieved_docs": [],
             "result": {},
             "error": "",
+            # Web search fields (only used if search_tool is provided)
+            "web_search_enabled": search_tool is not None,
+            "web_search_results": [],
+            "enriched_context": "",
+            "retry_count": 0,
+            "max_retries": 1,
+            "web_search_query": "",
+            "web_search_error": "",
         }
 
         final_state = await graph.ainvoke(initial_state)
@@ -119,9 +145,16 @@ async def compare_spec_to_submittal(
             for doc in final_state.get("retrieved_docs", [])
         ]
 
+        # Add web search fields (optional, only present if web search was used)
+        if result.get("web_search_used"):
+            result["web_evidence"] = result.get("web_evidence")
+            result["primary_source"] = result.get("primary_source")
+            result["web_sources"] = result.get("web_sources")
+
         logger.info(
             f"Comparison complete: verdict={result.get('verdict')}, "
-            f"confidence={result.get('confidence', 0):.2f}"
+            f"confidence={result.get('confidence', 0):.2f}, "
+            f"web_search_used={result.get('web_search_used', False)}"
         )
 
         return result
@@ -317,6 +350,7 @@ async def compare_document_to_submittal(
     max_concurrency: int = 5,
     enable_parallel: bool = True,
     progress_callback: Optional[callable] = None,
+    search_tool: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Compare all facts from a specification document against a submittal document.
@@ -402,7 +436,7 @@ async def compare_document_to_submittal(
             # Import supervisor agent
             from app.agents.supervisor_graph import run_supervisor_comparison
 
-            # Run parallel comparison using Supervisor Agent
+            # Run parallel comparison using Supervisor Agent with optional web search
             supervisor_result = await run_supervisor_comparison(
                 facts=facts_dicts,
                 submittal_document_id=submittal_document_id,
@@ -413,6 +447,7 @@ async def compare_document_to_submittal(
                 top_k=top_k,
                 max_concurrency=max_concurrency,
                 progress_callback=progress_callback,
+                search_tool=search_tool,
             )
 
             all_comparisons = supervisor_result["results"]

@@ -8,7 +8,7 @@ against submittal documents using hybrid search and LLM comparison.
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import uuid
 import logging
 from datetime import datetime
@@ -38,7 +38,13 @@ from app.services.comparison import (
     compare_document_to_submittal,
     compare_batch,
 )
-from app.dependencies import get_mongodb, get_qdrant, get_llm_client, LLMClient
+from app.dependencies import (
+    get_mongodb,
+    get_qdrant,
+    get_llm_client,
+    get_tavily_search_tool,
+    LLMClient,
+)
 from app.utils.exceptions import NotFoundError, ComparisonError
 
 logger = logging.getLogger(__name__)
@@ -61,6 +67,7 @@ async def run_document_comparison(
     db: AsyncIOMotorDatabase,
     qdrant_client: QdrantClient,
     llm_client: LLMClient,
+    search_tool: Optional[Any] = None,
 ):
     """
     Background task to run document comparison.
@@ -76,6 +83,7 @@ async def run_document_comparison(
         db: MongoDB database instance
         qdrant_client: Qdrant client instance
         llm_client: OpenAI LLM client
+        search_tool: Optional Tavily search tool for web search enhancement
     """
     try:
         logger.info(f"Starting document comparison job: job_id={job_id}")
@@ -91,7 +99,7 @@ async def run_document_comparison(
                 f"[PROGRESS] Job {job_id} progress: {completed_facts}/{total_facts} ({percentage}%)"
             )
 
-        # Perform document comparison
+        # Perform document comparison with optional web search
         result = await compare_document_to_submittal(
             spec_document_id=spec_document_id,
             submittal_document_id=submittal_document_id,
@@ -103,6 +111,7 @@ async def run_document_comparison(
             max_concurrency=max_concurrency,
             enable_parallel=enable_parallel,
             progress_callback=update_progress,
+            search_tool=search_tool,
         )
 
         # Convert results to ComparisonResult objects
@@ -200,6 +209,7 @@ async def compare_spec_to_submittal_endpoint(
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
     llm_client: LLMClient = Depends(get_llm_client),
+    search_tool: Optional[Any] = Depends(get_tavily_search_tool),
 ) -> ComparisonResult:
     """
     Compare a specification fact against a submittal document.
@@ -230,7 +240,7 @@ async def compare_spec_to_submittal_endpoint(
                 f"Must be 'dense', 'sparse', or 'ensemble'.",
             )
 
-        # Perform comparison
+        # Perform comparison with optional web search
         result = await compare_spec_to_submittal(
             spec_fact=request.spec_fact,
             submittal_document_id=request.submittal_document_id,
@@ -239,9 +249,10 @@ async def compare_spec_to_submittal_endpoint(
             llm_client=llm_client,
             retrieval_strategy=request.retrieval_strategy,
             top_k=request.top_k,
+            search_tool=search_tool,
         )
 
-        # Build response
+        # Build response with optional web search fields
         comparison_result = ComparisonResult(
             comparison_id=str(uuid.uuid4()),
             spec_fact=result["spec_fact"],
@@ -255,6 +266,11 @@ async def compare_spec_to_submittal_endpoint(
             ],
             retrieval_strategy=result["retrieval_strategy"],
             compared_at=datetime.utcnow(),
+            # Web search fields (optional)
+            web_search_used=result.get("web_search_used"),
+            web_evidence=result.get("web_evidence"),
+            primary_source=result.get("primary_source"),
+            web_sources=result.get("web_sources"),
         )
 
         logger.info(
@@ -309,6 +325,7 @@ async def compare_document_to_submittal_endpoint(
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
     qdrant_client: QdrantClient = Depends(get_qdrant),
     llm_client: LLMClient = Depends(get_llm_client),
+    search_tool: Optional[Any] = Depends(get_tavily_search_tool),
 ) -> DocumentComparisonResponse:
     """
     Initiate a document comparison job.
@@ -369,7 +386,7 @@ async def compare_document_to_submittal_endpoint(
         )
         _document_jobs[job_id] = document_job
 
-        # Start background task
+        # Start background task with optional web search
         background_tasks.add_task(
             run_document_comparison,
             job_id=job_id,
@@ -382,6 +399,7 @@ async def compare_document_to_submittal_endpoint(
             db=db,
             qdrant_client=qdrant_client,
             llm_client=llm_client,
+            search_tool=search_tool,
         )
 
         logger.info(f"Document comparison job created: job_id={job_id}, total_facts={total_facts}")

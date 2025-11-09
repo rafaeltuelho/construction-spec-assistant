@@ -5,7 +5,7 @@ This module provides dependency functions that can be injected into API endpoint
 """
 
 import os
-from typing import AsyncGenerator, Optional, Union
+from typing import AsyncGenerator, Optional, Union, Any
 from fastapi import Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from qdrant_client import QdrantClient
@@ -25,6 +25,7 @@ LLMClient = Union[ChatOpenAI, ChatTogether]
 _mongodb_client: Optional[AsyncIOMotorClient] = None
 _qdrant_client: Optional[QdrantClient] = None
 _llm_client: Optional[LLMClient] = None
+_tavily_search_tool: Optional[Any] = None  # Tavily search tool for web search
 
 
 # Getter functions for health checks
@@ -48,6 +49,11 @@ def get_llm_client_instance() -> Optional[LLMClient]:
 def get_openai_client_instance() -> Optional[LLMClient]:
     """Get the LLM client instance (for health checks). Alias for backward compatibility."""
     return _llm_client
+
+
+def get_tavily_search_tool_instance() -> Optional[Any]:
+    """Get the Tavily search tool instance (for health checks)."""
+    return _tavily_search_tool
 
 
 # MongoDB Dependencies
@@ -272,6 +278,21 @@ async def get_openai_client() -> LLMClient:
     return await get_llm_client()
 
 
+async def get_tavily_search_tool() -> Optional[Any]:
+    """
+    Get Tavily search tool instance.
+
+    Returns:
+        Tavily search tool or None if not initialized/enabled
+
+    Note:
+        This function returns None if Tavily is not configured or disabled.
+        Callers should handle None gracefully.
+    """
+    global _tavily_search_tool
+    return _tavily_search_tool
+
+
 async def init_llm() -> None:
     """
     Initialize LLM client based on configured provider.
@@ -349,6 +370,65 @@ async def init_openai() -> None:
     await init_llm()
 
 
+# Tavily Search Tool Initialization
+
+
+async def init_tavily() -> None:
+    """
+    Initialize Tavily search tool for web search enhancement.
+
+    Should be called during application startup.
+    Note: This is optional - the application will start even if Tavily is not configured.
+    """
+    global _tavily_search_tool
+
+    if not settings.tavily_search_enabled:
+        logger.info("Tavily web search is disabled")
+        _tavily_search_tool = None
+        return
+
+    if not settings.tavily_api_key:
+        logger.warning("TAVILY_API_KEY not set in environment")
+        logger.warning(
+            "Application will continue without Tavily. Web search enhancement will not be available."
+        )
+        _tavily_search_tool = None
+        return
+
+    try:
+        logger.info("Initializing Tavily search tool")
+
+        # Import Tavily search wrapper
+        from langchain_community.tools.tavily_search import TavilySearchAPIWrapper
+
+        # Initialize Tavily search tool
+        _tavily_search_tool = TavilySearchAPIWrapper(
+            tavily_api_key=settings.tavily_api_key,
+            max_results=settings.tavily_max_results,
+            search_depth=settings.tavily_search_depth,
+        )
+
+        logger.info(
+            f"Tavily search tool initialized successfully "
+            f"(max_results={settings.tavily_max_results}, depth={settings.tavily_search_depth})"
+        )
+
+    except ImportError:
+        logger.warning(
+            "langchain-tavily package not installed. Install with: pip install langchain-tavily"
+        )
+        logger.warning(
+            "Application will continue without Tavily. Web search enhancement will not be available."
+        )
+        _tavily_search_tool = None
+    except Exception as e:
+        logger.warning(f"Failed to initialize Tavily search tool: {e}")
+        logger.warning(
+            "Application will continue without Tavily. Web search enhancement will not be available."
+        )
+        _tavily_search_tool = None
+
+
 # LangSmith Initialization
 
 
@@ -416,6 +496,9 @@ async def startup_dependencies() -> None:
 
     # Initialize LLM client (based on configured provider)
     await init_llm()
+
+    # Initialize Tavily search tool (if enabled)
+    await init_tavily()
 
     # Initialize LangSmith tracing (if enabled)
     await init_langsmith()
