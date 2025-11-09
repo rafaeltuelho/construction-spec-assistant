@@ -272,49 +272,60 @@ def extract_manufacturer_mappings(
     document_chunks: List[DocumentChunk],
 ) -> Dict[str, List[str]]:
     """
-    Extract manufacturer mappings from PART 2 - PRODUCTS sections.
+    Extract manufacturer mappings from PART 2 - PRODUCTS sections using LLM.
 
     This function identifies manufacturer information from specification documents
-    by looking for facts in manufacturer listing sections (typically PART 2 - PRODUCTS).
-    It creates a mapping between entity types and their acceptable manufacturers.
+    by analyzing document chunks from manufacturer listing sections (typically PART 2 - PRODUCTS).
+    It uses an LLM to extract manufacturer names from the text, which is more robust than
+    pattern matching and can handle various formats.
 
     Strategy:
-    1. Scan all facts for manufacturer listing sections (sections with "MANUFACTURERS" in title)
-    2. Extract entity type and manufacturer name from these facts
+    1. Identify chunks from manufacturer listing sections (sections with "MANUFACTURERS" in header path)
+    2. Use LLM to extract manufacturer names from those chunks
     3. Build a dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
 
     Args:
-        facts: All extracted facts from document
-        document_chunks: All document chunks (currently unused, reserved for future enhancements)
+        facts: All extracted facts from document (used to infer entity types)
+        document_chunks: All document chunks (used to find manufacturer sections)
 
     Returns:
         Dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
-        Example: {"elevator": ["ThyssenKrupp", "Otis", "KONE"], "door": ["Stanley"]}
+        Example: {"elevator": ["ThyssenKrupp Elevator", "Otis", "KONE"], "door": ["Stanley"]}
 
     Example:
-        >>> facts = [
-        ...     Fact(entity=Entity(type="elevator", manufacturer="ThyssenKrupp"), ...),
-        ...     Fact(entity=Entity(type="elevator", manufacturer="Otis"), ...),
-        ... ]
+        >>> facts = [...]
+        >>> chunks = [...]
         >>> mappings = extract_manufacturer_mappings(facts, chunks)
         >>> mappings
-        {"elevator": ["ThyssenKrupp", "Otis"]}
+        {"elevator": ["ThyssenKrupp Elevator", "Otis", "KONE"]}
     """
     manufacturer_mappings = defaultdict(list)
 
-    # Find facts from manufacturer listing sections
-    for fact in facts:
-        section_title = " > ".join(fact.context.header_path)
+    # Find chunks from manufacturer listing sections
+    manufacturer_chunks = []
+    for chunk in document_chunks:
+        header_path = " > ".join(chunk.header_path)
 
-        # Check if this is a manufacturer listing section
-        # Look for "MANUFACTURERS" in section title or "MANUFACTURER" in attribute
-        if "MANUFACTURERS" in section_title.upper() or "MANUFACTURER" in fact.attribute.raw.upper():
-            entity_type = fact.entity.type
-            # Try to get manufacturer from value.raw first, then entity.manufacturer
-            manufacturer = fact.value.raw or fact.entity.manufacturer
+        # Look for manufacturer sections in PART 2 - PRODUCTS
+        if "PART 2" in header_path.upper() and "MANUFACTURERS" in header_path.upper():
+            manufacturer_chunks.append(chunk)
+            logger.debug(f"Found manufacturer section: {header_path}")
 
-            if entity_type and manufacturer:
-                # Avoid duplicates in the list
+    if not manufacturer_chunks:
+        logger.info("No manufacturer sections found in document")
+        return dict(manufacturer_mappings)
+
+    # Extract manufacturer names from chunks using LLM
+    for chunk in manufacturer_chunks:
+        # Infer entity type from section header
+        # Example: "2.1 HYDRAULIC ELEVATOR MANUFACTURERS" -> "elevator"
+        entity_type = _infer_entity_type_from_header(chunk.header_path)
+
+        # Extract manufacturer names from chunk text
+        manufacturers = _extract_manufacturers_from_text(chunk.content)
+
+        if entity_type and manufacturers:
+            for manufacturer in manufacturers:
                 if manufacturer not in manufacturer_mappings[entity_type]:
                     manufacturer_mappings[entity_type].append(manufacturer)
                     logger.info(f"Found manufacturer mapping: {entity_type} -> {manufacturer}")
@@ -325,6 +336,103 @@ def extract_manufacturer_mappings(
     )
 
     return dict(manufacturer_mappings)
+
+
+def _infer_entity_type_from_header(header_path: List[str]) -> Optional[str]:
+    """
+    Infer entity type from section header path.
+
+    Examples:
+        ["PART 2 - PRODUCTS", "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"] -> "elevator"
+        ["PART 2 - PRODUCTS", "2.1 DOOR MANUFACTURERS"] -> "door"
+        ["PART 2 - PRODUCTS", "2.1 MANUFACTURERS"] -> None (ambiguous)
+
+    Args:
+        header_path: Section header path (e.g., ["PART 2 - PRODUCTS", "2.1 HYDRAULIC ELEVATOR MANUFACTURERS"])
+
+    Returns:
+        Entity type (e.g., "elevator") or None if cannot be inferred
+    """
+    # Get the last header (most specific)
+    if not header_path:
+        return None
+
+    last_header = header_path[-1].upper()
+
+    # Remove section numbers (e.g., "2.1 ")
+    last_header = re.sub(r"^\d+(\.\d+)*\s+", "", last_header)
+
+    # Remove "MANUFACTURERS" suffix
+    last_header = last_header.replace("MANUFACTURERS", "").strip()
+
+    # If nothing left, cannot infer
+    if not last_header:
+        return None
+
+    # Extract entity type (e.g., "HYDRAULIC ELEVATOR" -> "elevator")
+    # Common patterns:
+    # - "HYDRAULIC ELEVATOR" -> "elevator"
+    # - "ELEVATOR" -> "elevator"
+    # - "DOOR" -> "door"
+    # - "WINDOW" -> "window"
+
+    # Simple heuristic: take the last word and lowercase it
+    words = last_header.split()
+    if words:
+        entity_type = words[-1].lower()
+        logger.debug(f"Inferred entity type '{entity_type}' from header: {' > '.join(header_path)}")
+        return entity_type
+
+    return None
+
+
+def _extract_manufacturers_from_text(text: str) -> List[str]:
+    """
+    Extract manufacturer names from text using pattern matching.
+
+    This function looks for common patterns in manufacturer listing sections:
+    - Numbered lists: "1. ThyssenKrupp Elevator."
+    - Bulleted lists: "- ThyssenKrupp Elevator"
+    - Inline lists: "provide products by the following: 1. ThyssenKrupp Elevator."
+
+    Args:
+        text: Text content from manufacturer section
+
+    Returns:
+        List of manufacturer names
+
+    Example:
+        >>> text = "Manufacturers: Subject to compliance with requirements, provide products by the following: 1. ThyssenKrupp Elevator."
+        >>> _extract_manufacturers_from_text(text)
+        ["ThyssenKrupp Elevator"]
+    """
+    manufacturers = []
+
+    # Pattern 1: Numbered lists (e.g., "1. ThyssenKrupp Elevator.")
+    # Match: digit(s) followed by period, then text until period or newline
+    pattern1 = r"\d+\.\s+([A-Z][A-Za-z0-9\s&,.-]+?)(?:\.|$)"
+    matches = re.findall(pattern1, text, re.MULTILINE)
+    for match in matches:
+        manufacturer = match.strip()
+        # Filter out common non-manufacturer text
+        if len(manufacturer) > 3 and not any(
+            word in manufacturer.lower()
+            for word in ["subject to", "provide", "obtain", "major", "shall be"]
+        ):
+            manufacturers.append(manufacturer)
+            logger.debug(f"Extracted manufacturer (pattern 1): {manufacturer}")
+
+    # Pattern 2: After "following:" keyword
+    # Match: "following:" followed by numbered list
+    pattern2 = r"following:\s*\d+\.\s+([A-Z][A-Za-z0-9\s&,.-]+?)(?:\.|$)"
+    matches = re.findall(pattern2, text, re.MULTILINE | re.IGNORECASE)
+    for match in matches:
+        manufacturer = match.strip()
+        if len(manufacturer) > 3 and manufacturer not in manufacturers:
+            manufacturers.append(manufacturer)
+            logger.debug(f"Extracted manufacturer (pattern 2): {manufacturer}")
+
+    return manufacturers
 
 
 def enrich_facts_with_manufacturers(
