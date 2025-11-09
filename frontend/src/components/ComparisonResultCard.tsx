@@ -249,6 +249,15 @@ export function ComparisonResultCard({
           <span className="text-sm text-gray-500">
             Confidence: {(result.confidence * 100).toFixed(0)}%
           </span>
+          {/* Web search indicator badge */}
+          {result.web_search_used && (
+            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full flex items-center gap-1">
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Web Enhanced
+            </span>
+          )}
           {/* Show annotation badge when collapsed */}
           {!isExpanded && selectedAnnotation && (
             <span className="text-xs text-gray-500 ml-2">
@@ -384,6 +393,60 @@ export function ComparisonResultCard({
           "{result.submittal_evidence}"
         </p>
       </div>
+
+      {/* Web Search Enhancement Section */}
+      {result.web_search_used && (
+        <div className="mb-4 border-t border-gray-200 pt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <h3 className="text-sm font-semibold text-gray-700">Web Search Enhancement</h3>
+            <span className="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+              Web Search Used
+            </span>
+            {result.primary_source && (
+              <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                result.primary_source === 'submittal' ? 'bg-blue-100 text-blue-800' :
+                result.primary_source === 'web' ? 'bg-green-100 text-green-800' :
+                result.primary_source === 'both' ? 'bg-purple-100 text-purple-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                Primary Source: {result.primary_source.charAt(0).toUpperCase() + result.primary_source.slice(1)}
+              </span>
+            )}
+          </div>
+
+          {result.web_evidence && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-1">Web Evidence:</p>
+              <p className="text-sm text-gray-700 bg-green-50 p-3 rounded border border-green-200">
+                {result.web_evidence}
+              </p>
+            </div>
+          )}
+
+          {result.web_sources && result.web_sources.length > 0 && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Web Sources:</p>
+              <ul className="space-y-1">
+                {result.web_sources.map((source, idx) => (
+                  <li key={idx} className="text-sm">
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      {source.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Reasoning */}
       <div className="mb-4">

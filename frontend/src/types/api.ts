@@ -223,6 +223,12 @@ export interface ComparisonResult {
     annotated_by?: string;
     annotated_at: string;
   };
+
+  // Web search enhancement fields (optional, only present when web search was used)
+  web_search_used?: boolean;
+  web_evidence?: string;
+  primary_source?: "submittal" | "web" | "both" | "neither";
+  web_sources?: Array<{title: string; url: string}>;
 }
 
 export interface ComparisonSummary {
