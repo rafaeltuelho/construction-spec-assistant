@@ -312,16 +312,33 @@ def extract_manufacturer_mappings(
     # Find facts from manufacturer listing sections
     # Use facts' context.header_path since DocumentChunk doesn't have header_path
     manufacturer_sections = set()
+
+    # DEBUG: Log sample header paths to understand the data structure
+    logger.info(f"Analyzing {len(facts)} facts for manufacturer sections...")
+    sample_header_paths = set()
+    for i, fact in enumerate(facts[:10]):  # Sample first 10 facts
+        header_path = " > ".join(fact.context.header_path)
+        sample_header_paths.add(header_path)
+
+    if sample_header_paths:
+        logger.info(f"Sample header paths from facts (first 10 unique):")
+        for hp in list(sample_header_paths)[:10]:
+            logger.info(f"  - {hp}")
+
+    # Search for manufacturer sections
     for fact in facts:
         header_path = " > ".join(fact.context.header_path)
 
         # Look for manufacturer sections in PART 2 - PRODUCTS
         if "PART 2" in header_path.upper() and "MANUFACTURERS" in header_path.upper():
             manufacturer_sections.add((fact.context.section_id, tuple(fact.context.header_path)))
-            logger.debug(f"Found manufacturer section: {header_path}")
+            logger.info(f"✓ Found manufacturer section: {header_path}")
 
     if not manufacturer_sections:
-        logger.info("No manufacturer sections found in document")
+        logger.warning("No manufacturer sections found in document")
+        logger.warning(
+            f"Searched {len(facts)} facts for sections containing 'PART 2' AND 'MANUFACTURERS'"
+        )
         return dict(manufacturer_mappings)
 
     # Extract manufacturer names from sections
