@@ -366,8 +366,8 @@ async def compare_document_to_submittal(
         if not submittal_doc:
             raise NotFoundError(f"Submittal document not found: {submittal_document_id}")
 
-        # Retrieve all facts from the specification document
-        facts = await get_facts_by_document(db, spec_document_id, limit=1000, offset=0)
+        # Retrieve all facts from the specification document (no limit - get all facts)
+        facts = await get_facts_by_document(db, spec_document_id)
 
         if not facts:
             logger.warning(f"No facts found for document {spec_document_id}")

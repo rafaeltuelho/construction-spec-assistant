@@ -284,7 +284,7 @@ async def store_facts(db: AsyncIOMotorDatabase, facts: List[Fact]) -> List[str]:
 
 
 async def get_facts_by_document(
-    db: AsyncIOMotorDatabase, document_id: str, limit: int = 100, offset: int = 0
+    db: AsyncIOMotorDatabase, document_id: str, limit: int = -1, offset: int = 0
 ) -> List[Fact]:
     """
     Retrieve all facts for a document.
@@ -292,7 +292,7 @@ async def get_facts_by_document(
     Args:
         db: MongoDB database instance
         document_id: Document identifier
-        limit: Maximum facts to return
+        limit: Maximum facts to return (-1 = return all facts, default)
         offset: Pagination offset
 
     Returns:
@@ -302,11 +302,18 @@ async def get_facts_by_document(
         DatabaseError: If retrieval fails
     """
     try:
-        cursor = db.facts.find({"context.doc_id": document_id}).skip(offset).limit(limit)
-        fact_dicts = await cursor.to_list(length=limit)
+        # If limit is -1, retrieve all facts (no limit)
+        if limit == -1:
+            cursor = db.facts.find({"context.doc_id": document_id}).skip(offset)
+            fact_dicts = await cursor.to_list(length=None)
+        else:
+            cursor = db.facts.find({"context.doc_id": document_id}).skip(offset).limit(limit)
+            fact_dicts = await cursor.to_list(length=limit)
 
         facts = [Fact(**doc) for doc in fact_dicts]
-        logger.debug(f"Retrieved {len(facts)} facts for document {document_id}")
+        logger.debug(
+            f"Retrieved {len(facts)} facts for document {document_id} (limit={limit}, offset={offset})"
+        )
         return facts
 
     except Exception as e:
