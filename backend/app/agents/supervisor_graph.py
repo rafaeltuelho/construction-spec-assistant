@@ -54,10 +54,11 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
     Supervisor node that orchestrates parallel fact comparisons.
 
     This node:
-    1. Creates a semaphore for concurrency control
-    2. Spawns sub-agent tasks for each fact
-    3. Aggregates results and updates summary
-    4. Handles errors gracefully
+    1. Creates a shared retriever and comparison graph (once for all facts)
+    2. Creates a semaphore for concurrency control
+    3. Spawns sub-agent tasks for each fact
+    4. Aggregates results and updates summary
+    5. Handles errors gracefully
 
     Args:
         state: Current supervisor state
@@ -93,9 +94,47 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
     # Get retriever cache
     retriever_cache = get_retriever_cache()
 
+    # ✅ OPTIMIZATION: Create retriever and comparison graph ONCE for all facts
+    logger.info(
+        f"Creating shared retriever and comparison graph for {total_facts} facts "
+        f"(strategy={retrieval_strategy})"
+    )
+
+    try:
+        # Import dependencies
+        from app.services.comparison import _create_retriever
+        from app.agents.comparison_graph import create_comparison_graph, ComparisonState
+        from app.retrievers.query_builder import build_query_terms_from_fact
+
+        # Create shared retriever
+        retriever = await _create_retriever(
+            strategy=retrieval_strategy,
+            submittal_document_id=submittal_document_id,
+            db=db,
+            qdrant_client=qdrant_client,
+        )
+
+        # Create shared comparison graph
+        filters = {"document_id": submittal_document_id}
+        comparison_graph = create_comparison_graph(
+            retriever=retriever, llm_client=llm_client, top_k=top_k, filters=filters
+        )
+
+        logger.info("Shared retriever and comparison graph created successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to create shared retriever/graph: {e}", exc_info=True)
+        # Return error state
+        state["results"] = []
+        state["summary"] = summary
+        state["completed"] = 0
+        state["total"] = total_facts
+        state["errors"] = [{"error": f"Failed to initialize: {str(e)}"}]
+        return state
+
     async def process_fact(fact: Dict[str, Any], fact_index: int) -> Dict[str, Any]:
         """
-        Process a single fact using a sub-agent.
+        Process a single fact using the shared comparison graph.
 
         Args:
             fact: Spec fact to compare
@@ -113,19 +152,48 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
                     f"fact_id={fact.get('fact_id', 'unknown')}"
                 )
 
-                # Import here to avoid circular dependency
-                from app.services.comparison import compare_spec_to_submittal
+                # ✅ Build query terms from fact
+                query_terms = build_query_terms_from_fact(fact)
 
-                # Perform comparison using existing function
-                result = await compare_spec_to_submittal(
-                    spec_fact=fact,
-                    submittal_document_id=submittal_document_id,
-                    db=db,
-                    qdrant_client=qdrant_client,
-                    llm_client=llm_client,
-                    retrieval_strategy=retrieval_strategy,
-                    top_k=top_k,
-                )
+                # ✅ Use the SHARED comparison graph
+                initial_state: ComparisonState = {
+                    "spec_fact": fact,
+                    "query": query_terms,
+                    "retrieved_docs": [],
+                    "result": {},
+                    "error": "",
+                }
+
+                # Run comparison through the shared graph
+                final_state = await comparison_graph.ainvoke(initial_state)
+
+                # Check for errors
+                if final_state.get("error"):
+                    raise Exception(final_state["error"])
+
+                # Extract result
+                comparison_result = final_state.get("result", {})
+
+                # Build full result dict (matching compare_spec_to_submittal output)
+                result = {
+                    "comparison_id": str(uuid.uuid4()),
+                    "spec_fact": fact,
+                    "submittal_document_id": submittal_document_id,
+                    "verdict": comparison_result.get("verdict", "unclear"),
+                    "confidence": comparison_result.get("confidence", 0.0),
+                    "submittal_evidence": comparison_result.get("submittal_evidence", ""),
+                    "reasoning": comparison_result.get("reasoning", ""),
+                    "retrieved_chunks": [
+                        {
+                            "content": doc.page_content,
+                            "metadata": doc.metadata,
+                            "relevance_score": doc.metadata.get("relevance_score", 0.0),
+                        }
+                        for doc in final_state.get("retrieved_docs", [])
+                    ],
+                    "retrieval_strategy": retrieval_strategy,
+                    "compared_at": datetime.utcnow(),
+                }
 
                 # Update summary
                 verdict = result.get("verdict", "unclear")
