@@ -17,9 +17,11 @@ class FactExtractionRequest(BaseModel):
     """
     Request schema for fact extraction.
 
+    Note: The LLM model is controlled by backend configuration (settings.openai_model
+    or settings.together_model) and cannot be overridden by the client.
+
     Attributes:
         document_id: Document identifier
-        llm_model: LLM model to use (default: gpt-4o-mini)
         deduplicate: Whether to deduplicate facts (default: True)
         normalize: Whether to normalize units (default: True)
         entity_hints: Optional hints for entity types by section_id
@@ -27,7 +29,6 @@ class FactExtractionRequest(BaseModel):
     """
 
     document_id: str = Field(..., description="Document identifier")
-    llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
     deduplicate: bool = Field(default=True, description="Whether to deduplicate facts")
     normalize: bool = Field(default=True, description="Whether to normalize units")
     entity_hints: Optional[dict] = Field(None, description="Entity type hints by section_id")

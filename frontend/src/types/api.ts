@@ -85,10 +85,13 @@ export interface DocumentStatusResponse {
 }
 
 // Fact Extraction
+// Note: LLM model is controlled by backend configuration and cannot be overridden
 export interface FactExtractionRequest {
   document_id: string;
-  llm_model?: string;
   deduplicate?: boolean;
+  normalize?: boolean;
+  entity_hints?: Record<string, string>;
+  force_reextraction?: boolean;
 }
 
 export interface FactExtractionResponse {

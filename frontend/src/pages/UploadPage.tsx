@@ -75,8 +75,8 @@ export function UploadPage() {
       try {
         const extractionResponse = await extractFacts({
           document_id: doc.documentId,
-          llm_model: 'gpt-4o-mini',
           deduplicate: true,
+          // Note: LLM model is controlled by backend configuration
         });
 
         updatedDoc.extractionJobId = extractionResponse.extraction_job_id;
