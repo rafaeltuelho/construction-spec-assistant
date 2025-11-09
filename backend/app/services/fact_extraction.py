@@ -329,8 +329,20 @@ def extract_manufacturer_mappings(
     for fact in facts:
         header_path = " > ".join(fact.context.header_path)
 
-        # Look for manufacturer sections in PART 2 - PRODUCTS
-        if "PART 2" in header_path.upper() and "MANUFACTURERS" in header_path.upper():
+        # Look for manufacturer sections
+        # Note: Facts may not have full hierarchical path (e.g., "2.1 HYDRAULIC ELEVATOR MANUFACTURERS")
+        # So we search for sections that contain "MANUFACTURERS" and start with "2." (PART 2 sections)
+        header_path_upper = header_path.upper()
+
+        # Check if this is a manufacturer section:
+        # 1. Contains "MANUFACTURERS" (plural or singular)
+        # 2. Either contains "PART 2" OR starts with "2." (section number pattern)
+        is_manufacturer_section = "MANUFACTURER" in header_path_upper and (
+            "PART 2" in header_path_upper
+            or any(part.strip().startswith("2.") for part in fact.context.header_path)
+        )
+
+        if is_manufacturer_section:
             manufacturer_sections.add((fact.context.section_id, tuple(fact.context.header_path)))
             logger.info(f"✓ Found manufacturer section: {header_path}")
 
