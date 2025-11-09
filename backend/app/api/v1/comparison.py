@@ -420,12 +420,15 @@ async def compare_document_to_submittal_endpoint(
     - `failed`: Job failed with an error
 
     **Pagination**: Use query parameters `limit` and `offset` to paginate through results.
+    - `limit=-1` (default): Return all records
+    - `limit=N`: Return N records per page
+
     **Filtering**: Use `verdict_filter` to filter by verdict type.
     """,
 )
 async def get_document_comparison_status(
     job_id: str,
-    limit: int = 100,
+    limit: int = -1,
     offset: int = 0,
     verdict_filter: str = None,
     db: AsyncIOMotorDatabase = Depends(get_mongodb),
@@ -437,7 +440,7 @@ async def get_document_comparison_status(
 
     Args:
         job_id: Job identifier
-        limit: Maximum number of comparisons to return
+        limit: Maximum number of comparisons to return (-1 = return all records, default)
         offset: Pagination offset
         verdict_filter: Optional filter by verdict
         db: MongoDB database instance
@@ -541,16 +544,22 @@ async def get_document_comparison_status(
 
             # Apply pagination
             total_comparisons = len(comparisons)
-            comparisons = comparisons[offset : offset + limit]
+
+            # If limit is -1, return all records (no pagination)
+            if limit == -1:
+                paginated_comparisons = comparisons[offset:]
+            else:
+                paginated_comparisons = comparisons[offset : offset + limit]
 
             # Create a copy of the job with filtered/paginated results
             job_copy = job.model_copy()
-            job_copy.comparisons = comparisons
+            job_copy.comparisons = paginated_comparisons
 
             logger.info(
                 f"Job status: job_id={job_id}, status={job.status}, "
                 f"completed={job.completed_facts}/{job.total_facts}, "
-                f"returned={len(comparisons)}/{total_comparisons}"
+                f"returned={len(paginated_comparisons)}/{total_comparisons} "
+                f"(limit={limit}, offset={offset})"
             )
 
             return job_copy
