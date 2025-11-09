@@ -185,9 +185,14 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
                     "reasoning": comparison_result.get("reasoning", ""),
                     "retrieved_chunks": [
                         {
-                            "content": doc.page_content,
-                            "metadata": doc.metadata,
+                            "chunk_id": doc.metadata.get("chunk_id", ""),
+                            "content": doc.page_content[:200] + "..."
+                            if len(doc.page_content) > 200
+                            else doc.page_content,
                             "relevance_score": doc.metadata.get("relevance_score", 0.0),
+                            # Page number tracking (from Docling provenance)
+                            "page_start": doc.metadata.get("page_start"),
+                            "page_end": doc.metadata.get("page_end"),
                         }
                         for doc in final_state.get("retrieved_docs", [])
                     ],
