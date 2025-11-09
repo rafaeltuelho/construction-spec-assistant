@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 backend/app/__init__.py
 backend/app/config.py
@@ -6,6 +7,7 @@ backend/app/main.py
 backend/app/agents/__init__.py
 backend/app/agents/comparison_graph.py
 backend/app/agents/prompts.py
+backend/app/agents/supervisor_graph.py
 backend/app/api/__init__.py
 backend/app/api/schemas/__init__.py
 backend/app/api/schemas/common.py
@@ -13,6 +15,7 @@ backend/app/api/schemas/comparison.py
 backend/app/api/schemas/fact.py
 backend/app/api/v1/__init__.py
 backend/app/api/v1/comparison.py
+backend/app/api/v1/config.py
 backend/app/api/v1/documents.py
 backend/app/api/v1/facts.py
 backend/app/api/v1/health.py
@@ -30,8 +33,10 @@ backend/app/models/document.py
 backend/app/models/fact.py
 backend/app/retrievers/__init__.py
 backend/app/retrievers/base.py
+backend/app/retrievers/cache.py
 backend/app/retrievers/dense.py
 backend/app/retrievers/ensemble.py
+backend/app/retrievers/parent_document.py
 backend/app/retrievers/query_builder.py
 backend/app/retrievers/sparse.py
 backend/app/services/__init__.py
@@ -47,4 +52,13 @@ backend/construction_spec_assistant.egg-info/SOURCES.txt
 backend/construction_spec_assistant.egg-info/dependency_links.txt
 backend/construction_spec_assistant.egg-info/requires.txt
 backend/construction_spec_assistant.egg-info/top_level.txt
+backend/scripts/__init__.py
+backend/scripts/cleanup_mongodb.py
 backend/tests/__init__.py
+backend/tests/test_asme_retrieval.py
+backend/tests/test_asme_retrieval_simple.py
+backend/tests/test_hybrid_chunker.py
+backend/tests/test_page_numbers.py
+backend/tests/test_real_documents.py
+backend/tests/test_sectionizer.py
+tests/test_duplicate_detection.py

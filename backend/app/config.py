@@ -153,6 +153,24 @@ class Settings(BaseSettings):
         default=True, description="Enable parallel execution using Supervisor Agent"
     )
 
+    # Tavily Web Search Settings
+    tavily_api_key: Optional[str] = Field(default=None, description="Tavily API key for web search")
+    tavily_search_enabled: bool = Field(
+        default=False, description="Enable Tavily web search for unclear verdicts"
+    )
+    tavily_max_results: int = Field(
+        default=3, ge=1, le=10, description="Maximum web search results to retrieve"
+    )
+    tavily_search_depth: str = Field(
+        default="advanced", description="Search depth: 'basic' or 'advanced'"
+    )
+    tavily_timeout: int = Field(
+        default=10, ge=1, le=60, description="Tavily search timeout in seconds"
+    )
+    tavily_min_relevance_score: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Minimum relevance score for web search results"
+    )
+
     @field_validator("llm_provider")
     @classmethod
     def validate_llm_provider(cls, v: str) -> str:
@@ -190,6 +208,16 @@ class Settings(BaseSettings):
         if not 0.0 <= v <= 1.0:
             raise ValueError(f"Weight must be between 0.0 and 1.0, got {v}")
         return v
+
+    @field_validator("tavily_search_depth")
+    @classmethod
+    def validate_tavily_search_depth(cls, v: str) -> str:
+        """Validate Tavily search depth."""
+        valid_depths = ["basic", "advanced"]
+        v_lower = v.lower()
+        if v_lower not in valid_depths:
+            raise ValueError(f"Invalid search depth: {v}. Must be one of {valid_depths}")
+        return v_lower
 
     @property
     def max_file_size_bytes(self) -> int:

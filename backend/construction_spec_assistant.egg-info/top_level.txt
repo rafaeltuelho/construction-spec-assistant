@@ -1,4 +1,5 @@
 app
 mongodb_data
 qdrant_storage
+scripts
 tests

@@ -12,6 +12,7 @@ langchain-community>=0.3.0
 langchain-experimental>=0.3.4
 langchain-qdrant>=0.2.0
 langchain-cohere==0.4.4
+langchain-tavily>=0.2.0
 langgraph>=0.2.0
 langsmith>=0.1.0
 cohere<5.13.0,>=5.12.0

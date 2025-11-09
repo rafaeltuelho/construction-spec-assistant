@@ -86,7 +86,7 @@ class RetrievedChunk(BaseModel):
 
 class ComparisonResult(BaseModel):
     """
-    Individual fact comparison result.
+    Individual fact comparison result with optional web search enhancement.
 
     Attributes:
         comparison_id: Unique comparison identifier
@@ -100,6 +100,10 @@ class ComparisonResult(BaseModel):
         retrieval_strategy: Retrieval strategy used
         compared_at: Timestamp of comparison
         user_annotation: User annotation for this comparison (if any)
+        web_search_used: Whether web search was used for this comparison (optional)
+        web_evidence: Relevant information from web sources (optional)
+        primary_source: Primary evidence source: 'submittal', 'web', 'both', or 'neither' (optional)
+        web_sources: List of web sources used with title and URL (optional)
     """
 
     comparison_id: str = Field(..., description="Unique comparison identifier")
@@ -122,6 +126,19 @@ class ComparisonResult(BaseModel):
     )
     user_annotation: Optional[UserAnnotation] = Field(
         None, description="User annotation for this comparison (if any)"
+    )
+
+    # Web search enhancement fields (optional, only present when web search was used)
+    web_search_used: Optional[bool] = Field(
+        None, description="Whether web search was used for this comparison"
+    )
+    web_evidence: Optional[str] = Field(None, description="Relevant information from web sources")
+    primary_source: Optional[str] = Field(
+        None,
+        description="Primary evidence source: 'submittal', 'web', 'both', or 'neither'",
+    )
+    web_sources: Optional[List[Dict[str, str]]] = Field(
+        None, description="List of web sources used (title and URL)"
     )
 
 
