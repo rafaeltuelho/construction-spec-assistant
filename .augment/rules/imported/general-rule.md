@@ -7,7 +7,7 @@ type: "always_apply"
 - You must always commit your changes whenever you update code. 
 - You must always try and write code that is well documented. (self or commented is fine)
 - You must only work on a single feature at a time.
-- You must explain your decisions thouroughly to the user.
-- Make sure any sensitive information (eg. API keys, passwords) are not persisted anywhere withoiut hashing. Also never pass API keys or any sort of sensitive keys as HTTP query params.
-- Aways ensure the backend API use security good practicess to avoid known HTTP/web security flaws.
-- Aways save your Agent or Plan output to a new Markdown file and save it inside the `.vibe-log/` folder.
+- You must explain your decisions thoroughly to the user.
+- Make sure any sensitive information (eg. API keys, passwords) are not persisted anywhere without hashing. Also never pass API keys or any sort of sensitive keys as HTTP query params.
+- Always ensure the backend API use security good practices to avoid known HTTP/web security flaws.
+- Always save your Agent or Plan output to a new Markdown file and save it inside the `.agent_logs/` folder.
