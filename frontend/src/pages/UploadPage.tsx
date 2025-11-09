@@ -64,6 +64,14 @@ export function UploadPage() {
 
     // For specification documents, automatically trigger fact extraction
     if (type === 'spec') {
+      // Guard: Only trigger fact extraction if not already started
+      // This prevents duplicate calls in React StrictMode (development)
+      if (doc.extractionJobId) {
+        console.log('Fact extraction already started, skipping duplicate call');
+        setSpecDocument(updatedDoc);
+        return;
+      }
+
       try {
         const extractionResponse = await extractFacts({
           document_id: doc.documentId,
