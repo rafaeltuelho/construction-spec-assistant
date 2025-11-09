@@ -1,0 +1,101 @@
+graph TB
+    subgraph "BEFORE Optimization (Inefficient)"
+        B_SUP["Supervisor Node<br/>Receives 151 facts"]
+        
+        subgraph "Sub-Agent 1"
+            B_SA1["process_fact(fact_1)"]
+            B_SA1_CALL["compare_spec_to_submittal()"]
+            B_SA1_RET["❌ Create NEW Retriever"]
+            B_SA1_GRAPH["❌ Create NEW Graph"]
+            B_SA1_EXEC["Execute Graph"]
+        end
+        
+        subgraph "Sub-Agent 2"
+            B_SA2["process_fact(fact_2)"]
+            B_SA2_CALL["compare_spec_to_submittal()"]
+            B_SA2_RET["❌ Create NEW Retriever"]
+            B_SA2_GRAPH["❌ Create NEW Graph"]
+            B_SA2_EXEC["Execute Graph"]
+        end
+        
+        subgraph "Sub-Agent 3-151"
+            B_SA3["... (149 more sub-agents)"]
+            B_SA3_WASTE["❌ 149 more retrievers<br/>❌ 149 more graphs"]
+        end
+        
+        B_SUP --> B_SA1
+        B_SUP --> B_SA2
+        B_SUP --> B_SA3
+        
+        B_SA1 --> B_SA1_CALL
+        B_SA1_CALL --> B_SA1_RET
+        B_SA1_RET --> B_SA1_GRAPH
+        B_SA1_GRAPH --> B_SA1_EXEC
+        
+        B_SA2 --> B_SA2_CALL
+        B_SA2_CALL --> B_SA2_RET
+        B_SA2_RET --> B_SA2_GRAPH
+        B_SA2_GRAPH --> B_SA2_EXEC
+        
+        B_RESULT["Total Objects Created:<br/>151 Retrievers + 151 Graphs = 302<br/>Log Messages: 302"]
+        
+        B_SA1_EXEC --> B_RESULT
+        B_SA2_EXEC --> B_RESULT
+        B_SA3_WASTE --> B_RESULT
+    end
+    
+    subgraph "AFTER Optimization (Efficient)"
+        A_SUP["Supervisor Node<br/>Receives 151 facts"]
+        
+        A_SHARED["✅ Create ONCE<br/>---<br/>1 Shared Retriever<br/>1 Shared Comparison Graph"]
+        
+        subgraph "Sub-Agent 1"
+            A_SA1["process_fact(fact_1)"]
+            A_SA1_QUERY["build_query_terms()"]
+            A_SA1_INVOKE["✅ Use Shared Graph<br/>graph.ainvoke()"]
+        end
+        
+        subgraph "Sub-Agent 2"
+            A_SA2["process_fact(fact_2)"]
+            A_SA2_QUERY["build_query_terms()"]
+            A_SA2_INVOKE["✅ Use Shared Graph<br/>graph.ainvoke()"]
+        end
+        
+        subgraph "Sub-Agent 3-151"
+            A_SA3["... (149 more sub-agents)"]
+            A_SA3_REUSE["✅ All use same<br/>shared graph"]
+        end
+        
+        A_SUP --> A_SHARED
+        A_SHARED --> A_SA1
+        A_SHARED --> A_SA2
+        A_SHARED --> A_SA3
+        
+        A_SA1 --> A_SA1_QUERY
+        A_SA1_QUERY --> A_SA1_INVOKE
+        
+        A_SA2 --> A_SA2_QUERY
+        A_SA2_QUERY --> A_SA2_INVOKE
+        
+        A_RESULT["Total Objects Created:<br/>1 Retriever + 1 Graph = 2<br/>Log Messages: 2<br/>---<br/>99.3% Reduction! 🎉"]
+        
+        A_SA1_INVOKE --> A_RESULT
+        A_SA2_INVOKE --> A_RESULT
+        A_SA3_REUSE --> A_RESULT
+    end
+    
+    style B_SUP fill:#ffcdd2
+    style B_SA1_RET fill:#ef5350
+    style B_SA1_GRAPH fill:#ef5350
+    style B_SA2_RET fill:#ef5350
+    style B_SA2_GRAPH fill:#ef5350
+    style B_SA3_WASTE fill:#ef5350
+    style B_RESULT fill:#ffcdd2
+    
+    style A_SUP fill:#c8e6c9
+    style A_SHARED fill:#66bb6a
+    style A_SA1_INVOKE fill:#81c784
+    style A_SA2_INVOKE fill:#81c784
+    style A_SA3_REUSE fill:#81c784
+    style A_RESULT fill:#c8e6c9
+

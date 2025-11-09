@@ -1,0 +1,109 @@
+graph TB
+    subgraph "API Layer"
+        API["/api/v1/comparison/compare-document<br/>POST Request"]
+        BG["Background Task<br/>(FastAPI)"]
+    end
+
+    subgraph "Service Layer"
+        SVC["compare_document_to_submittal()<br/>backend/app/services/comparison.py"]
+        FACTS["Get All Facts from MongoDB<br/>(151 facts)"]
+    end
+
+    subgraph "Supervisor Agent Layer"
+        SUP["run_supervisor_comparison()<br/>backend/app/agents/supervisor_graph.py"]
+        SUPNODE["supervisor_node()<br/>Orchestrates Parallel Execution"]
+        
+        subgraph "Shared Resources (Created Once)"
+            RET["Shared Retriever<br/>(Ensemble/Dense/Sparse)"]
+            GRAPH["Shared Comparison Graph<br/>(LangGraph StateGraph)"]
+        end
+        
+        subgraph "Parallel Execution (max_concurrency=5)"
+            SA1["Sub-Agent 1<br/>process_fact()"]
+            SA2["Sub-Agent 2<br/>process_fact()"]
+            SA3["Sub-Agent 3<br/>process_fact()"]
+            SA4["Sub-Agent 4<br/>process_fact()"]
+            SA5["Sub-Agent 5<br/>process_fact()"]
+            SADOTS["...<br/>(up to 151 total)"]
+        end
+    end
+
+    subgraph "Comparison Graph (Shared by All Sub-Agents)"
+        START_CG["START"]
+        RETRIEVE["retrieve_node<br/>RAG Retrieval"]
+        COMPARE["compare_node<br/>LLM Comparison"]
+        END_CG["END"]
+    end
+
+    subgraph "External Services"
+        MONGO[(MongoDB<br/>Facts & Chunks)]
+        QDRANT[(Qdrant<br/>Vector DB)]
+        LLM[("LLM<br/>(OpenAI/Together)")]
+    end
+
+    API --> BG
+    BG --> SVC
+    SVC --> FACTS
+    FACTS --> MONGO
+    SVC --> SUP
+    SUP --> SUPNODE
+    
+    SUPNODE --> RET
+    SUPNODE --> GRAPH
+    
+    SUPNODE -.->|"Spawns 151 tasks<br/>(5 concurrent)"| SA1
+    SUPNODE -.-> SA2
+    SUPNODE -.-> SA3
+    SUPNODE -.-> SA4
+    SUPNODE -.-> SA5
+    SUPNODE -.-> SADOTS
+    
+    SA1 -->|"Uses Shared Graph"| START_CG
+    SA2 -->|"Uses Shared Graph"| START_CG
+    SA3 -->|"Uses Shared Graph"| START_CG
+    SA4 -->|"Uses Shared Graph"| START_CG
+    SA5 -->|"Uses Shared Graph"| START_CG
+    
+    START_CG --> RETRIEVE
+    RETRIEVE --> COMPARE
+    COMPARE --> END_CG
+    
+    RETRIEVE --> QDRANT
+    RETRIEVE --> MONGO
+    COMPARE --> LLM
+    
+    END_CG -.->|"Returns Result"| SA1
+    END_CG -.->|"Returns Result"| SA2
+    END_CG -.->|"Returns Result"| SA3
+    END_CG -.->|"Returns Result"| SA4
+    END_CG -.->|"Returns Result"| SA5
+    
+    SA1 -.->|"Aggregates Results"| SUPNODE
+    SA2 -.-> SUPNODE
+    SA3 -.-> SUPNODE
+    SA4 -.-> SUPNODE
+    SA5 -.-> SUPNODE
+    SADOTS -.-> SUPNODE
+    
+    SUPNODE --> SVC
+    SVC --> BG
+    BG --> API
+
+    style API fill:#e1f5ff
+    style BG fill:#e1f5ff
+    style SVC fill:#fff4e6
+    style SUP fill:#f3e5f5
+    style SUPNODE fill:#f3e5f5
+    style RET fill:#c8e6c9
+    style GRAPH fill:#c8e6c9
+    style SA1 fill:#ffe0b2
+    style SA2 fill:#ffe0b2
+    style SA3 fill:#ffe0b2
+    style SA4 fill:#ffe0b2
+    style SA5 fill:#ffe0b2
+    style RETRIEVE fill:#ffccbc
+    style COMPARE fill:#ffccbc
+    style MONGO fill:#b3e5fc
+    style QDRANT fill:#b3e5fc
+    style LLM fill:#f8bbd0
+

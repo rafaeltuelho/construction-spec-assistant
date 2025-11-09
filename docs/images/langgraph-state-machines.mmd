@@ -1,0 +1,52 @@
+graph TB
+    subgraph "Supervisor Graph (supervisor_graph.py)"
+        START_SUP["START"]
+        SUP_NODE["supervisor_node<br/>---<br/>Input: SupervisorState<br/>- facts: List[Dict]<br/>- submittal_document_id: str<br/>- max_concurrency: int<br/>- db, qdrant_client, llm_client<br/>---<br/>Actions:<br/>1. Create shared retriever<br/>2. Create shared comparison graph<br/>3. Spawn 151 sub-agent tasks<br/>4. Control concurrency (semaphore)<br/>5. Aggregate results<br/>---<br/>Output: SupervisorState<br/>- results: List[Dict]<br/>- summary: Dict[str, int]<br/>- completed: int<br/>- errors: List"]
+        END_SUP["END"]
+        
+        START_SUP --> SUP_NODE
+        SUP_NODE --> END_SUP
+    end
+    
+    subgraph "Comparison Graph (comparison_graph.py)"
+        START_CMP["START"]
+        RET_NODE["retrieve_node<br/>---<br/>Input: ComparisonState<br/>- spec_fact: Dict<br/>- query: QueryTerms<br/>---<br/>Actions:<br/>1. Extract query from state<br/>2. Call retriever.retrieve()<br/>3. Ensemble/Dense/Sparse search<br/>4. Return top-K chunks<br/>---<br/>Output: ComparisonState<br/>- retrieved_docs: List[Document]"]
+        CMP_NODE["compare_node<br/>---<br/>Input: ComparisonState<br/>- spec_fact: Dict<br/>- retrieved_docs: List[Document]<br/>---<br/>Actions:<br/>1. Format spec fact<br/>2. Build context from chunks<br/>3. Call LLM with prompt<br/>4. Parse JSON response<br/>5. Extract verdict + confidence<br/>---<br/>Output: ComparisonState<br/>- result: Dict<br/>  - verdict: str<br/>  - confidence: float<br/>  - reasoning: str<br/>  - submittal_evidence: str"]
+        END_CMP["END"]
+        
+        START_CMP --> RET_NODE
+        RET_NODE --> CMP_NODE
+        CMP_NODE --> END_CMP
+    end
+    
+    subgraph "Sub-Agent Execution (Inside supervisor_node)"
+        SA_START["Sub-Agent Task<br/>(process_fact)"]
+        SA_QUERY["Build Query Terms<br/>build_query_terms_from_fact()"]
+        SA_INVOKE["Invoke Shared Graph<br/>comparison_graph.ainvoke()"]
+        SA_RESULT["Build Result Dict<br/>+ Update Summary"]
+        SA_END["Return to Supervisor"]
+        
+        SA_START --> SA_QUERY
+        SA_QUERY --> SA_INVOKE
+        SA_INVOKE -.->|"Uses"| START_CMP
+        END_CMP -.->|"Returns to"| SA_INVOKE
+        SA_INVOKE --> SA_RESULT
+        SA_RESULT --> SA_END
+    end
+    
+    SUP_NODE -.->|"Spawns 151 tasks<br/>(5 concurrent)"| SA_START
+    SA_END -.->|"Aggregates results"| SUP_NODE
+    
+    style START_SUP fill:#4caf50
+    style END_SUP fill:#f44336
+    style SUP_NODE fill:#2196f3
+    style START_CMP fill:#4caf50
+    style END_CMP fill:#f44336
+    style RET_NODE fill:#ff9800
+    style CMP_NODE fill:#ff9800
+    style SA_START fill:#9c27b0
+    style SA_QUERY fill:#9c27b0
+    style SA_INVOKE fill:#9c27b0
+    style SA_RESULT fill:#9c27b0
+    style SA_END fill:#9c27b0
+

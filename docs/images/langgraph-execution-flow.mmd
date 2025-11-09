@@ -1,0 +1,101 @@
+sequenceDiagram
+    participant Client as Frontend Client
+    participant API as FastAPI Endpoint
+    participant BG as Background Task
+    participant SVC as Comparison Service
+    participant SUP as Supervisor Agent
+    participant RET as Shared Retriever
+    participant GRAPH as Shared Comparison Graph
+    participant SA as Sub-Agent (1 of 151)
+    participant RETRIEVE as retrieve_node
+    participant COMPARE as compare_node
+    participant QDRANT as Qdrant Vector DB
+    participant MONGO as MongoDB
+    participant LLM as LLM (OpenAI/Together)
+
+    Client->>API: POST /compare-document
+    API->>MONGO: Get facts count
+    MONGO-->>API: 151 facts
+    API->>BG: Start background task
+    API-->>Client: 202 Accepted (job_id)
+    
+    Note over BG,SVC: Background Processing Starts
+    
+    BG->>SVC: compare_document_to_submittal()
+    SVC->>MONGO: Get all 151 facts
+    MONGO-->>SVC: 151 fact objects
+    
+    SVC->>SUP: run_supervisor_comparison(151 facts)
+    
+    Note over SUP: Supervisor Initialization
+    SUP->>SUP: Create semaphore (max_concurrency=5)
+    
+    Note over SUP,GRAPH: ✅ OPTIMIZATION: Create Once, Use 151 Times
+    SUP->>RET: Create shared retriever (ensemble)
+    RET->>MONGO: Load document chunks
+    MONGO-->>RET: Chunks loaded
+    RET-->>SUP: Retriever ready
+    
+    SUP->>GRAPH: Create shared comparison graph
+    GRAPH-->>SUP: Graph compiled
+    
+    Note over SUP: Spawn 151 Sub-Agent Tasks (5 concurrent)
+    
+    par Sub-Agent 1 (Fact 1)
+        SUP->>SA: process_fact(fact_1)
+        SA->>SA: build_query_terms_from_fact()
+        SA->>GRAPH: ainvoke(initial_state)
+        
+        Note over GRAPH,RETRIEVE: Comparison Graph Execution
+        GRAPH->>RETRIEVE: retrieve_node(state)
+        RETRIEVE->>QDRANT: Dense search (embeddings)
+        QDRANT-->>RETRIEVE: Top-K chunks
+        RETRIEVE->>MONGO: BM25 search (keywords)
+        MONGO-->>RETRIEVE: Top-K chunks
+        RETRIEVE->>RETRIEVE: Ensemble fusion (RRF)
+        RETRIEVE-->>GRAPH: Retrieved docs
+        
+        GRAPH->>COMPARE: compare_node(state)
+        COMPARE->>LLM: Compare spec vs submittal
+        LLM-->>COMPARE: Verdict + confidence + reasoning
+        COMPARE-->>GRAPH: Comparison result
+        
+        GRAPH-->>SA: final_state
+        SA->>SA: Build result dict
+        SA->>SUP: Update summary & progress
+        SA-->>SUP: Comparison result
+    and Sub-Agent 2 (Fact 2)
+        SUP->>SA: process_fact(fact_2)
+        Note over SA: Same flow as Sub-Agent 1
+        SA-->>SUP: Comparison result
+    and Sub-Agent 3 (Fact 3)
+        SUP->>SA: process_fact(fact_3)
+        Note over SA: Same flow as Sub-Agent 1
+        SA-->>SUP: Comparison result
+    and Sub-Agent 4 (Fact 4)
+        SUP->>SA: process_fact(fact_4)
+        Note over SA: Same flow as Sub-Agent 1
+        SA-->>SUP: Comparison result
+    and Sub-Agent 5 (Fact 5)
+        SUP->>SA: process_fact(fact_5)
+        Note over SA: Same flow as Sub-Agent 1
+        SA-->>SUP: Comparison result
+    end
+    
+    Note over SUP: ... (146 more facts processed in batches of 5)
+    
+    SUP->>SUP: Aggregate all 151 results
+    SUP->>SUP: Calculate summary statistics
+    SUP-->>SVC: supervisor_result (151 comparisons)
+    
+    SVC->>SVC: Build response with summary
+    SVC-->>BG: Comparison complete
+    
+    BG->>MONGO: Persist 151 comparison results
+    MONGO-->>BG: Saved
+    BG->>BG: Update job status to "completed"
+    
+    Note over Client,API: Client Polls for Status
+    Client->>API: GET /compare-document/{job_id}
+    API-->>Client: Status: completed, 151/151 facts
+
