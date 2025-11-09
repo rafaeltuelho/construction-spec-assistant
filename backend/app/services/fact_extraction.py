@@ -272,21 +272,22 @@ def extract_manufacturer_mappings(
     document_chunks: List[DocumentChunk],
 ) -> Dict[str, List[str]]:
     """
-    Extract manufacturer mappings from PART 2 - PRODUCTS sections using LLM.
+    Extract manufacturer mappings from PART 2 - PRODUCTS sections using pattern matching.
 
     This function identifies manufacturer information from specification documents
-    by analyzing document chunks from manufacturer listing sections (typically PART 2 - PRODUCTS).
-    It uses an LLM to extract manufacturer names from the text, which is more robust than
-    pattern matching and can handle various formats.
+    by analyzing facts from manufacturer listing sections (typically PART 2 - PRODUCTS).
+    It uses the header_path from facts' context to identify manufacturer sections,
+    then extracts manufacturer names using regex patterns.
 
     Strategy:
-    1. Identify chunks from manufacturer listing sections (sections with "MANUFACTURERS" in header path)
-    2. Use LLM to extract manufacturer names from those chunks
-    3. Build a dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
+    1. Identify facts from manufacturer listing sections (sections with "MANUFACTURERS" in header path)
+    2. Build section_id -> content mapping from chunks
+    3. Extract manufacturer names from section content using regex patterns
+    4. Build a dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
 
     Args:
-        facts: All extracted facts from document (used to infer entity types)
-        document_chunks: All document chunks (used to find manufacturer sections)
+        facts: All extracted facts from document (contains header_path in context)
+        document_chunks: All document chunks (used to get content for manufacturer sections)
 
     Returns:
         Dictionary mapping entity_type -> [manufacturer1, manufacturer2, ...]
@@ -301,28 +302,45 @@ def extract_manufacturer_mappings(
     """
     manufacturer_mappings = defaultdict(list)
 
-    # Find chunks from manufacturer listing sections
-    manufacturer_chunks = []
+    # Build a mapping of section_id -> chunk content for quick lookup
+    section_content_map = {}
     for chunk in document_chunks:
-        header_path = " > ".join(chunk.header_path)
+        if chunk.section_id not in section_content_map:
+            section_content_map[chunk.section_id] = []
+        section_content_map[chunk.section_id].append(chunk.content)
+
+    # Find facts from manufacturer listing sections
+    # Use facts' context.header_path since DocumentChunk doesn't have header_path
+    manufacturer_sections = set()
+    for fact in facts:
+        header_path = " > ".join(fact.context.header_path)
 
         # Look for manufacturer sections in PART 2 - PRODUCTS
         if "PART 2" in header_path.upper() and "MANUFACTURERS" in header_path.upper():
-            manufacturer_chunks.append(chunk)
+            manufacturer_sections.add((fact.context.section_id, tuple(fact.context.header_path)))
             logger.debug(f"Found manufacturer section: {header_path}")
 
-    if not manufacturer_chunks:
+    if not manufacturer_sections:
         logger.info("No manufacturer sections found in document")
         return dict(manufacturer_mappings)
 
-    # Extract manufacturer names from chunks using LLM
-    for chunk in manufacturer_chunks:
+    # Extract manufacturer names from sections
+    for section_id, header_path_tuple in manufacturer_sections:
+        header_path = list(header_path_tuple)
+
         # Infer entity type from section header
         # Example: "2.1 HYDRAULIC ELEVATOR MANUFACTURERS" -> "elevator"
-        entity_type = _infer_entity_type_from_header(chunk.header_path)
+        entity_type = _infer_entity_type_from_header(header_path)
 
-        # Extract manufacturer names from chunk text
-        manufacturers = _extract_manufacturers_from_text(chunk.content)
+        # Get content for this section
+        section_content = " ".join(section_content_map.get(section_id, []))
+
+        if not section_content:
+            logger.debug(f"No content found for section {section_id}")
+            continue
+
+        # Extract manufacturer names from section text
+        manufacturers = _extract_manufacturers_from_text(section_content)
 
         if entity_type and manufacturers:
             for manufacturer in manufacturers:
