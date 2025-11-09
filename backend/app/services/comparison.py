@@ -314,15 +314,15 @@ async def compare_document_to_submittal(
     llm_client: Union[ChatOpenAI, ChatTogether],
     retrieval_strategy: str = "ensemble",
     top_k: int = 5,
-    limit: int = 100,
-    offset: int = 0,
-    verdict_filter: str = None,
     max_concurrency: int = 5,
     enable_parallel: bool = True,
     progress_callback: Optional[callable] = None,
 ) -> Dict[str, Any]:
     """
     Compare all facts from a specification document against a submittal document.
+
+    NOTE: This function processes and returns ALL comparison results.
+    Pagination should be applied at the API layer when retrieving results.
 
     Args:
         spec_document_id: Specification document ID containing facts
@@ -332,15 +332,12 @@ async def compare_document_to_submittal(
         llm_client: OpenAI LLM client
         retrieval_strategy: "dense", "sparse", or "ensemble" (default)
         top_k: Number of documents to retrieve per fact
-        limit: Maximum number of comparisons to return
-        offset: Pagination offset
-        verdict_filter: Optional filter by verdict ('consistent', 'inconsistent', 'unclear')
         max_concurrency: Maximum concurrent comparisons (default: 5)
         enable_parallel: Enable parallel execution using Supervisor Agent (default: True)
         progress_callback: Optional callback for progress updates
 
     Returns:
-        Document comparison result dict with summary and individual comparisons
+        Document comparison result dict with summary and ALL individual comparisons
 
     Raises:
         NotFoundError: If specification or submittal document not found
@@ -483,17 +480,9 @@ async def compare_document_to_submittal(
                         percentage = int((completed_facts / total_facts) * 100)
                         await progress_callback(completed_facts, total_facts, percentage)
 
-        # Apply verdict filter if specified
-        if verdict_filter:
-            all_comparisons = [c for c in all_comparisons if c.get("verdict") == verdict_filter]
-
-        # Apply pagination
-        total_comparisons = len(all_comparisons)
-        paginated_comparisons = all_comparisons[offset : offset + limit]
-
         logger.info(
-            f"Document comparison completed: {total_comparisons} total comparisons, "
-            f"returning {len(paginated_comparisons)} (offset={offset}, limit={limit})"
+            f"Document comparison completed: {len(all_comparisons)} total comparisons, "
+            f"returning all results"
         )
 
         return {
@@ -503,7 +492,7 @@ async def compare_document_to_submittal(
             "total_facts": len(facts),
             "status": "completed",
             "summary": summary,
-            "comparisons": paginated_comparisons,
+            "comparisons": all_comparisons,
             "compared_at": datetime.utcnow(),
         }
 
