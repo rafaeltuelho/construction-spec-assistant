@@ -487,18 +487,18 @@ def enrich_facts_with_manufacturers(
     manufacturer_mappings: Dict[str, List[str]],
 ) -> List[Fact]:
     """
-    Enrich facts with manufacturer information based on entity type.
+    Enrich facts with manufacturer information.
 
-    This function associates manufacturer information with facts that are missing it.
-    It uses the manufacturer mappings extracted from PART 2 - PRODUCTS sections to
-    populate the entity.manufacturer field for facts based on their entity type.
+    This function associates manufacturer information with ALL facts in the document.
+    According to SME (Architect) feedback, all facts extracted from a specification
+    document are related to the manufacturer(s) listed in that specification.
 
     Strategy:
-    1. For each fact without manufacturer information
-    2. Look up manufacturers for that entity type in the mappings
-    3. If single manufacturer: use it directly
-    4. If multiple manufacturers: use first one with "or equivalent" suffix
-    5. If no manufacturers found: leave as None
+    1. Determine the primary entity type and manufacturers from the mappings
+    2. For each fact without entity type: set it to the primary entity type
+    3. For each fact without manufacturer: set it to the primary manufacturer(s)
+    4. If single manufacturer: use it directly
+    5. If multiple manufacturers: use first one with "or equivalent" suffix
 
     Args:
         facts: Facts to enrich
@@ -509,47 +509,65 @@ def enrich_facts_with_manufacturers(
 
     Example:
         >>> facts = [
+        ...     Fact(entity=Entity(type=None, manufacturer=None), ...),
         ...     Fact(entity=Entity(type="elevator", manufacturer=None), ...),
         ... ]
         >>> mappings = {"elevator": ["ThyssenKrupp", "Otis"]}
         >>> enriched = enrich_facts_with_manufacturers(facts, mappings)
+        >>> enriched[0].entity.type
+        "elevator"
         >>> enriched[0].entity.manufacturer
         "ThyssenKrupp or equivalent"
 
     Note:
+        - ALL facts in the document are associated with the extracted manufacturer(s)
         - Facts with existing manufacturer information are not modified
         - The "or equivalent" suffix indicates multiple acceptable manufacturers
         - This is a post-processing step that doesn't modify the original extraction logic
     """
+    if not manufacturer_mappings:
+        logger.info("No manufacturer mappings found, skipping enrichment")
+        return facts
+
+    # Determine primary entity type and manufacturers
+    # If only one entity type in mappings, use it for all facts
+    # If multiple entity types, use the first one (or could be configurable)
+    primary_entity_type = list(manufacturer_mappings.keys())[0]
+    primary_manufacturers = manufacturer_mappings[primary_entity_type]
+
+    logger.info(
+        f"Using primary entity type '{primary_entity_type}' with {len(primary_manufacturers)} "
+        f"manufacturer(s) for enrichment"
+    )
+
+    # Determine the manufacturer string to use
+    if len(primary_manufacturers) == 1:
+        manufacturer_str = primary_manufacturers[0]
+    else:
+        manufacturer_str = f"{primary_manufacturers[0]} or equivalent"
+
     enriched_facts = []
-    enriched_count = 0
+    enriched_type_count = 0
+    enriched_manufacturer_count = 0
 
     for fact in facts:
-        # Skip if manufacturer already set
-        if fact.entity.manufacturer:
-            enriched_facts.append(fact)
-            continue
+        # Set entity type if missing
+        if not fact.entity.type:
+            fact.entity.type = primary_entity_type
+            enriched_type_count += 1
+            logger.debug(f"Set entity type for fact {fact.id}: {primary_entity_type}")
 
-        # Look up manufacturers for this entity type
-        entity_type = fact.entity.type
-        manufacturers = manufacturer_mappings.get(entity_type, [])
-
-        if manufacturers:
-            # If single manufacturer, use it directly
-            # If multiple manufacturers, use first one with "or equivalent" suffix
-            if len(manufacturers) == 1:
-                fact.entity.manufacturer = manufacturers[0]
-            else:
-                fact.entity.manufacturer = f"{manufacturers[0]} or equivalent"
-
-            enriched_count += 1
-            logger.debug(f"Enriched fact {fact.id} with manufacturer: {fact.entity.manufacturer}")
+        # Set manufacturer if missing
+        if not fact.entity.manufacturer:
+            fact.entity.manufacturer = manufacturer_str
+            enriched_manufacturer_count += 1
+            logger.debug(f"Set manufacturer for fact {fact.id}: {manufacturer_str}")
 
         enriched_facts.append(fact)
 
     logger.info(
-        f"Enriched {enriched_count}/{len(facts)} facts with manufacturer information "
-        f"({len(manufacturer_mappings)} entity types)"
+        f"Enriched {enriched_type_count}/{len(facts)} facts with entity type "
+        f"and {enriched_manufacturer_count}/{len(facts)} facts with manufacturer information"
     )
 
     return enriched_facts

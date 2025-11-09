@@ -12,7 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from app.models.fact import Fact
-from app.services.fact_extraction import extract_manufacturer_mappings
+from app.services.fact_extraction import (
+    extract_manufacturer_mappings,
+    enrich_facts_with_manufacturers,
+)
 
 
 class SimpleChunk:
@@ -59,9 +62,10 @@ def main():
     print("=" * 80)
     print()
 
-    # Load test data
-    facts_file = "experimental_data/parsed/Spec 14 24 00 - Hydraulic Elevators_redacted.facts.jsonl"
-    chunks_file = "experimental_data/parsed/Spec 14 24 00 - Hydraulic Elevators_redacted_20251021_172135.section_chunks.jsonl"
+    # Load test data (use absolute path from script location)
+    script_dir = Path(__file__).parent.parent
+    facts_file = script_dir / "experimental_data/parsed/Spec 14 24 00 - Hydraulic Elevators_redacted.facts.jsonl"
+    chunks_file = script_dir / "experimental_data/parsed/Spec 14 24 00 - Hydraulic Elevators_redacted_20251021_172135.section_chunks.jsonl"
 
     print(f"Loading facts from: {facts_file}")
     facts = load_facts_from_jsonl(facts_file)
@@ -111,6 +115,38 @@ def main():
     else:
         print(f"✗ FAILURE: Entity type '{expected_entity_type}' not found in mappings")
         print(f"  Found entity types: {list(manufacturer_mappings.keys())}")
+    print()
+
+    # Test enrichment
+    print("Testing Enrichment:")
+    print("=" * 80)
+
+    # Count facts before enrichment
+    facts_with_type_before = sum(1 for f in facts if f.entity.type)
+    facts_with_manufacturer_before = sum(1 for f in facts if f.entity.manufacturer)
+
+    print(f"Before enrichment:")
+    print(f"  Facts with entity type: {facts_with_type_before}/{len(facts)}")
+    print(f"  Facts with manufacturer: {facts_with_manufacturer_before}/{len(facts)}")
+    print()
+
+    # Enrich facts
+    enriched_facts = enrich_facts_with_manufacturers(facts, manufacturer_mappings)
+
+    # Count facts after enrichment
+    facts_with_type_after = sum(1 for f in enriched_facts if f.entity.type)
+    facts_with_manufacturer_after = sum(1 for f in enriched_facts if f.entity.manufacturer)
+
+    print(f"After enrichment:")
+    print(f"  Facts with entity type: {facts_with_type_after}/{len(enriched_facts)}")
+    print(f"  Facts with manufacturer: {facts_with_manufacturer_after}/{len(enriched_facts)}")
+    print()
+
+    # Verify enrichment
+    if facts_with_manufacturer_after == len(enriched_facts):
+        print(f"✓ SUCCESS: ALL {len(enriched_facts)} facts now have manufacturer information!")
+    else:
+        print(f"✗ PARTIAL: Only {facts_with_manufacturer_after}/{len(enriched_facts)} facts have manufacturer information")
     print()
 
 
