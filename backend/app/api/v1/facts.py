@@ -128,6 +128,12 @@ async def extract_facts(
     This endpoint initiates a background job to extract structured facts from
     a document's chunks using LLM-based extraction.
 
+    **Idempotency:**
+    - Automatically detects if facts already exist for the document
+    - If facts exist, returns cached results (HTTP 200) with `cached: true`
+    - Use `force_reextraction=true` to bypass cache and force re-extraction
+    - Re-extraction will delete existing facts and extract new ones
+
     Args:
         request: Fact extraction request
         background_tasks: FastAPI background tasks
@@ -146,10 +152,55 @@ async def extract_facts(
         if not document:
             raise NotFoundError(f"Document not found: {request.document_id}")
 
+        # Check if facts already exist (unless force_reextraction is True)
+        if not request.force_reextraction:
+            existing_facts = await get_facts_by_document(db, request.document_id, limit=1)
+            if existing_facts:
+                # Facts already exist - return cached result
+                all_facts = await get_facts_by_document(db, request.document_id, limit=-1)
+                logger.info(
+                    f"Facts already exist for document {request.document_id}: "
+                    f"{len(all_facts)} facts found. Returning cached results."
+                )
+
+                # Create a synthetic job ID for consistency
+                job_id = f"job_fact_cached_{uuid.uuid4().hex[:12]}"
+
+                # Create a completed job entry
+                job = FactExtractionJob(
+                    job_id=job_id,
+                    document_id=request.document_id,
+                    status="completed",
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow(),
+                    facts_extracted=len(all_facts),
+                    facts_deduplicated=len(all_facts),
+                )
+                _extraction_jobs[job_id] = job
+
+                return FactExtractionResponse(
+                    document_id=request.document_id,
+                    extraction_job_id=job_id,
+                    status="completed",
+                    started_at=job.started_at,
+                    facts_extracted=len(all_facts),
+                    cached=True,
+                    message=f"Facts already extracted. Returning {len(all_facts)} cached facts.",
+                )
+
         # Get document chunks
         chunks = await get_document_chunks(db, request.document_id)
         if not chunks:
             raise FactExtractionError(f"No chunks found for document: {request.document_id}")
+
+        # If force_reextraction is True, delete existing facts
+        if request.force_reextraction:
+            result = await db.facts.delete_many({"context.doc_id": request.document_id})
+            if result.deleted_count > 0:
+                logger.info(
+                    f"Deleted {result.deleted_count} existing facts for document "
+                    f"{request.document_id} (force_reextraction=True)"
+                )
 
         # Create extraction job
         job_id = f"job_fact_{uuid.uuid4().hex[:12]}"

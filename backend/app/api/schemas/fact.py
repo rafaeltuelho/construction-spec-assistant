@@ -23,6 +23,7 @@ class FactExtractionRequest(BaseModel):
         deduplicate: Whether to deduplicate facts (default: True)
         normalize: Whether to normalize units (default: True)
         entity_hints: Optional hints for entity types by section_id
+        force_reextraction: Force re-extraction even if facts already exist (default: False)
     """
 
     document_id: str = Field(..., description="Document identifier")
@@ -30,6 +31,9 @@ class FactExtractionRequest(BaseModel):
     deduplicate: bool = Field(default=True, description="Whether to deduplicate facts")
     normalize: bool = Field(default=True, description="Whether to normalize units")
     entity_hints: Optional[dict] = Field(None, description="Entity type hints by section_id")
+    force_reextraction: bool = Field(
+        default=False, description="Force re-extraction even if facts already exist"
+    )
 
 
 class FactExtractionResponse(BaseModel):
@@ -41,12 +45,18 @@ class FactExtractionResponse(BaseModel):
         extraction_job_id: Job identifier
         status: Job status
         started_at: Job start timestamp
+        facts_extracted: Number of facts (when returning cached results)
+        cached: Whether facts were returned from cache (default: False)
+        message: Optional message (e.g., for cached results)
     """
 
     document_id: str = Field(..., description="Document identifier")
     extraction_job_id: str = Field(..., description="Job identifier")
     status: str = Field(..., description="Job status")
     started_at: datetime = Field(..., description="Job start timestamp")
+    facts_extracted: Optional[int] = Field(None, description="Number of facts (when cached)")
+    cached: bool = Field(default=False, description="Whether facts were returned from cache")
+    message: Optional[str] = Field(None, description="Optional message")
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
