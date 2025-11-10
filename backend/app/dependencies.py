@@ -403,7 +403,7 @@ async def init_tavily() -> None:
 
         # Initialize Tavily search tool
         _tavily_search_tool = TavilySearch(
-            api_key=settings.tavily_api_key,
+            tavily_api_key=settings.tavily_api_key,
             max_results=settings.tavily_max_results,
             search_depth=settings.tavily_search_depth,
         )
