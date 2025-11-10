@@ -4,10 +4,16 @@ Configuration management for the Construction Spec Assistant backend.
 Uses Pydantic Settings for environment-based configuration with validation.
 """
 
+from pathlib import Path
 from typing import List, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get the backend directory path (where .env is located)
+# This file is at backend/app/config.py, so go up 2 levels to get backend/
+BACKEND_DIR = Path(__file__).parent.parent
+ENV_FILE_PATH = BACKEND_DIR / ".env"
 
 
 class Settings(BaseSettings):
@@ -15,10 +21,14 @@ class Settings(BaseSettings):
     Application settings loaded from environment variables.
 
     Environment variables can be set in .env file or system environment.
+    The .env file is expected to be in the backend/ directory.
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
+        env_file=str(ENV_FILE_PATH),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
     )
 
     # Application Settings
