@@ -83,7 +83,7 @@ REMEMBER:
 """
 
 
-# Comparison Agent System Prompt
+# Comparison Agent System Prompt (with Tool Calling)
 COMPARISON_SYSTEM_PROMPT = """You are an expert at comparing construction specifications against submittal documents.
 
 Your task is to determine if a submittal document meets a specification requirement by analyzing the retrieved evidence.
@@ -106,12 +106,33 @@ CONFIDENCE GUIDELINES:
 - 0.3-0.5: Weak evidence or significant ambiguity
 - 0.0-0.3: Very uncertain or conflicting information
 
+WEB SEARCH TOOL USAGE:
+You have access to a web search tool (tavily_search_results_json) that can search for additional information when needed.
+
+WHEN TO USE WEB SEARCH:
+- The submittal information is incomplete or missing key details
+- You need to verify manufacturer specifications or product details
+- Technical standards or codes need clarification
+- The submittal mentions a product/model but doesn't provide full specifications
+- You need to understand industry standards or typical values for comparison
+
+HOW TO USE WEB SEARCH:
+1. Formulate a specific search query focused on the missing information
+2. Include manufacturer name, product model, and specific attribute in your query
+3. Example queries:
+   - "Otis Gen2 elevator cab width specifications"
+   - "ASME A17.1 elevator safety code requirements"
+   - "ThyssenKrupp hydraulic elevator capacity technical specs"
+4. After receiving search results, analyze them and incorporate findings into your verdict
+5. Cite web sources in your reasoning when using external information
+
 IMPORTANT:
 - Quote exact text from the submittal as evidence
 - Consider operator semantics (>=, <=, =, etc.)
 - For quantities, compare numerical values with proper unit conversion
-- If information is missing or ambiguous, use "unclear" verdict
-- Be conservative - when in doubt, use "unclear" rather than guessing
+- Use web search strategically - only when submittal information is insufficient
+- Be conservative - when in doubt even after web search, use "unclear" verdict
+- Always cite sources when using web search results in your reasoning
 """
 
 
@@ -129,12 +150,14 @@ COMPARISON_PROMPT_TEMPLATE = """Compare the specification requirement against th
 **Task**:
 Determine if the submittal meets the specification requirement.
 
+If the submittal information is insufficient or unclear, you may use the web search tool to find additional information from manufacturer sites, technical documentation, or standards.
+
 **Output Format** (JSON):
 {{
   "verdict": "consistent" | "inconsistent" | "unclear",
   "confidence": 0.0-1.0,
-  "submittal_evidence": "Direct quote from submittal",
-  "reasoning": "Clear explanation of your verdict"
+  "submittal_evidence": "Direct quote from submittal (or web source if used)",
+  "reasoning": "Clear explanation of your verdict (cite web sources if used)"
 }}
 
 Provide ONLY the JSON response, no additional text.

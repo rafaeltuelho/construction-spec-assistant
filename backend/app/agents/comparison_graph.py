@@ -99,14 +99,20 @@ async def retrieve_node(
 
 
 async def compare_node(
-    state: ComparisonState, llm_client: Union[ChatOpenAI, ChatTogether]
+    state: ComparisonState,
+    llm_client: Union[ChatOpenAI, ChatTogether],
+    search_tool: Any = None,
 ) -> ComparisonState:
     """
     Compare spec fact against retrieved chunks using LLM.
 
+    If search_tool is provided, the LLM can use it to search for additional
+    information when the submittal evidence is insufficient.
+
     Args:
         state: Current state with retrieved documents
         llm_client: OpenAI LLM client
+        search_tool: Optional TavilySearch tool for web search (LLM tool calling)
 
     Returns:
         Updated state with comparison result
@@ -163,6 +169,13 @@ async def compare_node(
             context=context,
         )
 
+        # Bind search tool to LLM if available
+        if search_tool is not None:
+            logger.info("Binding Tavily search tool to LLM for intelligent tool calling")
+            llm_with_tools = llm_client.bind_tools([search_tool])
+        else:
+            llm_with_tools = llm_client
+
         # Call LLM with LangSmith metadata
         messages = [SystemMessage(content=COMPARISON_SYSTEM_PROMPT), HumanMessage(content=prompt)]
 
@@ -172,6 +185,7 @@ async def compare_node(
                 "comparison-agent",
                 f"spec:{spec_fact.get('fact_id', spec_fact.get('id', 'unknown'))}",
                 "verdict-check",
+                "tool-calling-enabled" if search_tool is not None else "no-tools",
             ],
             metadata={
                 "operation": "spec_comparison",
@@ -188,14 +202,109 @@ async def compare_node(
                 / len(retrieved_docs)
                 if retrieved_docs
                 else 0,
+                "web_search_enabled": search_tool is not None,
             },
         )
 
-        response = await llm_client.ainvoke(messages, config=config)
+        # Initial LLM call
+        response = await llm_with_tools.ainvoke(messages, config=config)
+
+        # Handle tool calls if LLM decided to use web search
+        tool_call_count = 0
+        max_tool_calls = 3  # Prevent infinite loops
+
+        while (
+            hasattr(response, "tool_calls")
+            and response.tool_calls
+            and tool_call_count < max_tool_calls
+        ):
+            tool_call_count += 1
+            logger.info(
+                f"LLM requested tool call #{tool_call_count}: {len(response.tool_calls)} tool(s)"
+            )
+
+            # Add assistant message with tool calls to conversation
+            messages.append(response)
+
+            # Execute each tool call
+            for tool_call in response.tool_calls:
+                tool_name = tool_call.get("name", "unknown")
+                tool_args = tool_call.get("args", {})
+                tool_id = tool_call.get("id", "unknown")
+
+                logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
+
+                try:
+                    # Execute the tool
+                    if tool_name == "tavily_search_results_json":
+                        # Extract query from tool args
+                        query = tool_args.get("query", "")
+                        logger.info(f"Web search query: {query}")
+
+                        # Call Tavily search
+                        search_response = await search_tool.ainvoke(query)
+                        search_results = search_response.get("results", [])
+
+                        # Format results for LLM
+                        tool_result = {
+                            "query": query,
+                            "num_results": len(search_results),
+                            "results": [
+                                {
+                                    "title": r.get("title", ""),
+                                    "url": r.get("url", ""),
+                                    "content": r.get("content", "")[:500],  # Limit content length
+                                    "score": r.get("score", 0.0),
+                                }
+                                for r in search_results[:3]  # Top 3 results
+                            ],
+                        }
+
+                        logger.info(f"Web search returned {len(search_results)} results")
+
+                        # Add tool result to messages
+                        from langchain_core.messages import ToolMessage
+
+                        messages.append(
+                            ToolMessage(
+                                content=json.dumps(tool_result),
+                                tool_call_id=tool_id,
+                            )
+                        )
+                    else:
+                        logger.warning(f"Unknown tool: {tool_name}")
+                        from langchain_core.messages import ToolMessage
+
+                        messages.append(
+                            ToolMessage(
+                                content=json.dumps({"error": f"Unknown tool: {tool_name}"}),
+                                tool_call_id=tool_id,
+                            )
+                        )
+
+                except Exception as e:
+                    logger.error(f"Tool execution failed: {e}", exc_info=True)
+                    from langchain_core.messages import ToolMessage
+
+                    messages.append(
+                        ToolMessage(
+                            content=json.dumps({"error": str(e)}),
+                            tool_call_id=tool_id,
+                        )
+                    )
+
+            # Call LLM again with tool results
+            response = await llm_with_tools.ainvoke(messages, config=config)
+
+        if tool_call_count > 0:
+            logger.info(f"Tool calling complete after {tool_call_count} iteration(s)")
+
+        # Extract final response content
+        final_content = response.content if hasattr(response, "content") else str(response)
 
         # Parse JSON response
         try:
-            result = json.loads(response.content)
+            result = json.loads(final_content)
 
             # Validate result structure
             required_fields = ["verdict", "confidence", "submittal_evidence", "reasoning"]
@@ -221,7 +330,7 @@ async def compare_node(
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.debug(f"LLM response: {response.content}")
+            logger.debug(f"LLM response: {final_content}")
             state["result"] = {
                 "verdict": "unclear",
                 "confidence": 0.0,
@@ -508,11 +617,13 @@ async def web_search_node(
     min_relevance_score: float = 0.5,
 ) -> ComparisonState:
     """
+    DEPRECATED: This node is no longer used. Web search is now handled via LLM tool calling.
+
     Search the web for additional context about the spec fact.
 
-    This node is triggered when the initial comparison verdict is "unclear"
-    and web_search_enabled=True. It searches for relevant information from
-    manufacturer sites, technical documentation, and standards.
+    This node was used in the old architecture where web search was a separate
+    graph node. Now, the LLM decides when to use web search via tool calling
+    in the compare_node.
 
     Args:
         state: Current state with "unclear" verdict
@@ -574,11 +685,13 @@ async def re_evaluate_node(
     llm_client: Union[ChatOpenAI, ChatTogether],
 ) -> ComparisonState:
     """
+    DEPRECATED: This node is no longer used. Re-evaluation is now handled via LLM tool calling.
+
     Re-evaluate comparison using enriched context from web search.
 
-    This node is triggered after web_search_node when the initial verdict
-    was "unclear". It performs a second LLM pass using the enriched context
-    (submittal + web search results) to attempt to resolve the uncertainty.
+    This node was used in the old architecture where re-evaluation was a separate
+    graph node after web search. Now, the LLM handles web search and re-evaluation
+    in a single conversation via tool calling in the compare_node.
 
     Args:
         state: Current state with enriched_context from web search
@@ -743,29 +856,28 @@ def create_comparison_graph(
     web_search_config: Dict[str, Any] = None,
 ) -> StateGraph:
     """
-    Create LangGraph state machine for comparison workflow with optional web search.
+    Create LangGraph state machine for comparison workflow with LLM tool calling.
 
-    Workflow (without web search):
+    Workflow (simplified with LLM tool calling):
     1. retrieve_node: Retrieve relevant submittal chunks
     2. compare_node: Compare spec fact against retrieved chunks
+       - LLM can use web search tool if needed (intelligent decision)
+       - LLM handles tool calls, result interpretation, and final verdict
     3. END: Return verdict and evidence
 
-    Workflow (with web search enabled):
-    1. retrieve_node: Retrieve relevant submittal chunks
-    2. compare_node: Compare spec fact against retrieved chunks
-    3. should_web_search: Check if verdict is "unclear" and web search enabled
-       - If yes → web_search_node → re_evaluate_node → END
-       - If no → END
+    The LLM decides when to use web search based on:
+    - Insufficient submittal information
+    - Need for manufacturer specifications
+    - Technical standards clarification
+    - Product model details missing
 
     Args:
         retriever: Retriever instance (ensemble recommended)
         llm_client: LLM client (OpenAI, Together, etc.)
         top_k: Number of documents to retrieve
         filters: Optional filters (e.g., {"document_id": "doc_123"})
-        search_tool: Optional Tavily search tool (required if web search enabled)
-        web_search_config: Optional web search configuration:
-            - max_results: Maximum web search results (default: 3)
-            - min_relevance_score: Minimum relevance score (default: 0.5)
+        search_tool: Optional TavilySearch tool for LLM tool calling
+        web_search_config: Optional web search configuration (deprecated, kept for compatibility)
 
     Returns:
         Compiled StateGraph
@@ -781,53 +893,23 @@ def create_comparison_graph(
         return await retrieve_node(state, retriever, top_k, filters)
 
     async def compare_wrapper(state: ComparisonState) -> ComparisonState:
-        return await compare_node(state, llm_client)
+        # Pass search_tool to compare_node for LLM tool calling
+        return await compare_node(state, llm_client, search_tool=search_tool)
 
-    # Build graph
+    # Build graph - simplified workflow with LLM tool calling
     workflow = StateGraph(ComparisonState)
 
     # Add core nodes
     workflow.add_node("retrieve", retrieve_wrapper)
     workflow.add_node("compare", compare_wrapper)
 
-    # Add web search nodes if enabled
+    # Simple linear workflow - LLM handles web search via tool calling
+    workflow.set_entry_point("retrieve")
+    workflow.add_edge("retrieve", "compare")
+    workflow.add_edge("compare", END)
+
     if search_tool is not None:
-
-        async def web_search_wrapper(state: ComparisonState) -> ComparisonState:
-            return await web_search_node(
-                state,
-                search_tool,
-                max_results=web_search_config.get("max_results", 3),
-                min_relevance_score=web_search_config.get("min_relevance_score", 0.5),
-            )
-
-        async def re_evaluate_wrapper(state: ComparisonState) -> ComparisonState:
-            return await re_evaluate_node(state, llm_client)
-
-        workflow.add_node("web_search", web_search_wrapper)
-        workflow.add_node("re_evaluate", re_evaluate_wrapper)
-
-        # Add edges with conditional routing
-        workflow.set_entry_point("retrieve")
-        workflow.add_edge("retrieve", "compare")
-        workflow.add_conditional_edges(
-            "compare",
-            should_web_search,
-            {
-                "web_search": "web_search",
-                END: END,
-            },
-        )
-        workflow.add_edge("web_search", "re_evaluate")
-        workflow.add_edge("re_evaluate", END)
-
-        logger.info("Web search nodes added to comparison graph")
-
-    else:
-        # Simple workflow without web search
-        workflow.set_entry_point("retrieve")
-        workflow.add_edge("retrieve", "compare")
-        workflow.add_edge("compare", END)
+        logger.info("Comparison graph created with LLM tool calling for web search")
 
     # Compile
     compiled_graph = workflow.compile()
