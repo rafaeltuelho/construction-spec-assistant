@@ -265,7 +265,11 @@ async def _create_retriever(
     chunks = await get_document_chunks(db, submittal_document_id)
 
     if not chunks:
-        raise NotFoundError(f"No chunks found for document {submittal_document_id}")
+        raise NotFoundError(
+            f"No chunks found for submittal document {submittal_document_id}. "
+            f"The document may not have been processed yet or processing may have failed. "
+            f"Please check the document status and ensure it has been successfully processed."
+        )
 
     logger.info(f"Loaded {len(chunks)} chunks for document {submittal_document_id}")
 

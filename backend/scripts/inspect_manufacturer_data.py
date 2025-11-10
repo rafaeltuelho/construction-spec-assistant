@@ -153,7 +153,7 @@ async def inspect_latest_document():
                 entity = fact.get("entity", {}).get("raw", "N/A")
                 attribute = fact.get("attribute", {}).get("raw", "N/A")
                 value = fact.get("value", {}).get("raw", "N/A")
-                
+
                 logger.info(f"\n{i}. Header Path: {header_path}")
                 logger.info(f"   Entity: {entity}")
                 logger.info(f"   Attribute: {attribute}")
@@ -161,18 +161,49 @@ async def inspect_latest_document():
         else:
             logger.warning("\n✗ No manufacturer facts found!")
             logger.warning("Searching for sections containing 'MANUFACTURER' (singular)...")
-            
+
             manufacturer_singular = []
             for hp in sorted(header_paths):
                 if "MANUFACTURER" in hp.upper():
                     manufacturer_singular.append(hp)
-            
+
             if manufacturer_singular:
                 logger.info(f"\nFound {len(manufacturer_singular)} sections with 'MANUFACTURER':")
                 for hp in manufacturer_singular[:10]:
                     logger.info(f"  - {hp}")
             else:
                 logger.warning("No sections with 'MANUFACTURER' found at all!")
+
+        # Analyze entity type distribution
+        logger.info("\n" + "=" * 80)
+        logger.info("Analyzing entity type distribution...")
+        logger.info("=" * 80)
+
+        entity_type_counts = {}
+        entity_with_manufacturer = {}
+
+        for fact in facts:
+            entity = fact.get("entity", {})
+            entity_type = entity.get("type", "unknown")
+            manufacturer = entity.get("manufacturer")
+
+            entity_type_counts[entity_type] = entity_type_counts.get(entity_type, 0) + 1
+
+            if manufacturer:
+                entity_with_manufacturer[entity_type] = entity_with_manufacturer.get(entity_type, 0) + 1
+
+        logger.info(f"\nEntity type distribution (top 10):")
+        sorted_types = sorted(entity_type_counts.items(), key=lambda x: x[1], reverse=True)
+        for i, (entity_type, count) in enumerate(sorted_types[:10], 1):
+            with_mfr = entity_with_manufacturer.get(entity_type, 0)
+            entity_type_str = str(entity_type) if entity_type else "None"
+            logger.info(f"{i:2d}. {entity_type_str:20s}: {count:3d} facts ({with_mfr:3d} with manufacturer)")
+
+        if len(sorted_types) > 10:
+            logger.info(f"... and {len(sorted_types) - 10} more entity types")
+
+        total_with_manufacturer = sum(entity_with_manufacturer.values())
+        logger.info(f"\nTotal facts with manufacturer: {total_with_manufacturer}/{len(facts)}")
         
         # Get sections for this document
         logger.info("\n" + "=" * 80)

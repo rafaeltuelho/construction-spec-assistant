@@ -146,12 +146,25 @@ async def supervisor_node(state: SupervisorState) -> SupervisorState:
 
     except Exception as e:
         logger.error(f"Failed to create shared retriever/graph: {e}", exc_info=True)
+
+        # Create user-friendly error message
+        from app.utils.exceptions import NotFoundError
+
+        if isinstance(e, NotFoundError):
+            error_message = (
+                f"Submittal document not found or not processed. "
+                f"Please ensure the submittal document has been uploaded and processed successfully. "
+                f"Details: {str(e)}"
+            )
+        else:
+            error_message = f"Failed to initialize comparison: {str(e)}"
+
         # Return error state
         state["results"] = []
         state["summary"] = summary
         state["completed"] = 0
         state["total"] = total_facts
-        state["errors"] = [{"error": f"Failed to initialize: {str(e)}"}]
+        state["errors"] = [{"error": error_message}]
         return state
 
     async def process_fact(fact: Dict[str, Any], fact_index: int) -> Dict[str, Any]:
