@@ -107,7 +107,7 @@ CONFIDENCE GUIDELINES:
 - 0.0-0.3: Very uncertain or conflicting information
 
 WEB SEARCH TOOL USAGE:
-You have access to a web search tool (tavily_search_results_json) that can search for additional information when needed.
+You have access to a web search tool (tavily_search) that can search for additional information when needed.
 
 WHEN TO USE WEB SEARCH:
 - The submittal information is incomplete or missing key details

@@ -236,7 +236,7 @@ async def compare_node(
 
                 try:
                     # Execute the tool
-                    if tool_name == "tavily_search_results_json":
+                    if tool_name == "tavily_search":
                         # Extract query from tool args
                         query = tool_args.get("query", "")
                         logger.info(f"Web search query: {query}")
