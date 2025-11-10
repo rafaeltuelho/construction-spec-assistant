@@ -503,7 +503,7 @@ def build_enriched_context(
 
 async def web_search_node(
     state: ComparisonState,
-    search_tool: Any,  # TavilySearchAPIWrapper
+    search_tool: Any,  # TavilySearch from langchain-tavily
     max_results: int = 3,
     min_relevance_score: float = 0.5,
 ) -> ComparisonState:
@@ -516,7 +516,7 @@ async def web_search_node(
 
     Args:
         state: Current state with "unclear" verdict
-        search_tool: Tavily search API wrapper
+        search_tool: TavilySearch tool from langchain-tavily package
         max_results: Maximum number of search results to retrieve
         min_relevance_score: Minimum relevance score for filtering
 
@@ -532,12 +532,12 @@ async def web_search_node(
 
         logger.info(f"Performing web search: {search_query}")
 
-        # Execute web search
-        search_results = await search_tool.results_async(
-            query=search_query,
-            max_results=max_results,
-            search_depth="advanced",  # More thorough search
-        )
+        # Execute web search using TavilySearch.ainvoke()
+        # Returns a dict with 'results' key containing list of search results
+        search_response = await search_tool.ainvoke(search_query)
+
+        # Extract results list from response
+        search_results = search_response.get("results", [])
 
         # Filter and rank results
         filtered_results = filter_search_results(

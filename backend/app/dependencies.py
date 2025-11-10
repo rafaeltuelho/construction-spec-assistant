@@ -398,12 +398,12 @@ async def init_tavily() -> None:
     try:
         logger.info("Initializing Tavily search tool")
 
-        # Import Tavily search wrapper
-        from langchain_community.tools.tavily_search import TavilySearchAPIWrapper
+        # Import Tavily search tool from langchain-tavily package
+        from langchain_tavily import TavilySearch
 
         # Initialize Tavily search tool
-        _tavily_search_tool = TavilySearchAPIWrapper(
-            tavily_api_key=settings.tavily_api_key,
+        _tavily_search_tool = TavilySearch(
+            api_key=settings.tavily_api_key,
             max_results=settings.tavily_max_results,
             search_depth=settings.tavily_search_depth,
         )
