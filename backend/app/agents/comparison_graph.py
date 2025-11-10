@@ -14,6 +14,7 @@ from langchain_together import ChatTogether
 from langgraph.graph import StateGraph, END
 import json
 import logging
+from json_repair import repair_json
 
 from app.retrievers.base import BaseRetriever
 from app.retrievers.query_builder import QueryTerms
@@ -211,7 +212,7 @@ async def compare_node(
 
         # Handle tool calls if LLM decided to use web search
         tool_call_count = 0
-        max_tool_calls = 3  # Prevent infinite loops
+        max_tool_calls = 3  # Prevent infinite loops (each iteration can have multiple tool calls)
 
         while (
             hasattr(response, "tool_calls")
@@ -299,44 +300,199 @@ async def compare_node(
         if tool_call_count > 0:
             logger.info(f"Tool calling complete after {tool_call_count} iteration(s)")
 
+            # If LLM is not making more tool calls, add JSON format reminder
+            # This ensures the LLM returns JSON after tool execution completes
+            if not (hasattr(response, "tool_calls") and response.tool_calls):
+                logger.info("Adding JSON format reminder after tool execution")
+                messages.append(response)
+                messages.append(
+                    SystemMessage(
+                        content=(
+                            "IMPORTANT: You must now provide your final verdict in STRICT JSON format.\n\n"
+                            "Return ONLY a valid JSON object with these exact fields:\n"
+                            '{"verdict": "consistent"|"inconsistent"|"unclear", '
+                            '"confidence": 0.0-1.0, '
+                            '"submittal_evidence": "...", '
+                            '"reasoning": "...", '
+                            '"primary_source": "submittal"|"web"|"both"|"neither"}\n\n'
+                            "CRITICAL RULES:\n"
+                            "- Do NOT include any explanatory text, analysis, or commentary\n"
+                            "- Do NOT use markdown code fences (```json)\n"
+                            "- Your entire response must be valid JSON starting with { and ending with }\n"
+                            "- Include all required fields in the JSON object"
+                        )
+                    )
+                )
+
+                # Re-invoke LLM to get JSON response
+                response = await llm_client.ainvoke(messages, config=config)
+                logger.info("Received response after JSON format reminder")
+
+        # Check if LLM still wants to make more tool calls (hit max limit)
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            logger.warning(
+                f"LLM still has {len(response.tool_calls)} pending tool calls but hit max_tool_calls limit"
+            )
+            logger.warning("Attempting to get final verdict without additional tool calls")
+
+            # Try one more time without tool binding to force a final answer
+            try:
+                messages.append(response)
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            "You have reached the maximum number of web searches allowed.\n\n"
+                            "CRITICAL: Provide your final verdict as a VALID JSON OBJECT ONLY.\n\n"
+                            "Required JSON format:\n"
+                            '{"verdict": "consistent"|"inconsistent"|"unclear", '
+                            '"confidence": 0.0-1.0, '
+                            '"submittal_evidence": "...", '
+                            '"reasoning": "...", '
+                            '"primary_source": "submittal"|"web"|"both"}\n\n'
+                            "STRICT RULES:\n"
+                            "- Return ONLY the JSON object - no text before or after\n"
+                            "- Do NOT use markdown code fences (```json)\n"
+                            "- Do NOT include any explanatory text or analysis\n"
+                            "- Your entire response must be valid JSON starting with { and ending with }"
+                        )
+                    )
+                )
+
+                # Call LLM without tools to force final answer
+                final_response = await llm_client.ainvoke(messages, config=config)
+                final_content = (
+                    final_response.content
+                    if hasattr(final_response, "content")
+                    else str(final_response)
+                )
+
+                if final_content and final_content.strip():
+                    # Try to parse this as the final response
+                    response = final_response
+                    logger.info("Successfully obtained final verdict after max tool calls")
+                else:
+                    raise ValueError("Empty response from final LLM call")
+
+            except Exception as e:
+                logger.error(f"Failed to get final verdict after max tool calls: {e}")
+                state["result"] = {
+                    "verdict": "unclear",
+                    "confidence": 0.3,
+                    "submittal_evidence": "Incomplete - max tool calls reached",
+                    "reasoning": (
+                        f"The comparison required more than {max_tool_calls} web search iterations. "
+                        "Unable to complete evaluation within tool call limit."
+                    ),
+                }
+                return state
+
         # Extract final response content
         final_content = response.content if hasattr(response, "content") else str(response)
 
-        # Parse JSON response
-        try:
-            result = json.loads(final_content)
-
-            # Validate result structure
-            required_fields = ["verdict", "confidence", "submittal_evidence", "reasoning"]
-            if not all(field in result for field in required_fields):
-                raise ValueError(f"Missing required fields in LLM response: {result}")
-
-            # Validate verdict
-            if result["verdict"] not in ["consistent", "inconsistent", "unclear"]:
-                logger.warning(f"Invalid verdict: {result['verdict']}, defaulting to 'unclear'")
-                result["verdict"] = "unclear"
-
-            # Validate confidence
-            if not isinstance(result["confidence"], (int, float)) or not (
-                0 <= result["confidence"] <= 1
-            ):
-                logger.warning(f"Invalid confidence: {result['confidence']}, defaulting to 0.5")
-                result["confidence"] = 0.5
-
-            state["result"] = result
-            logger.info(
-                f"Comparison complete: verdict={result['verdict']}, confidence={result['confidence']:.2f}"
-            )
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.debug(f"LLM response: {final_content}")
+        # Check if content is empty
+        if not final_content or final_content.strip() == "":
+            logger.error("LLM response content is empty after tool calling")
+            logger.debug(f"Response object: {response}")
             state["result"] = {
                 "verdict": "unclear",
                 "confidence": 0.0,
-                "submittal_evidence": "Error parsing LLM response",
-                "reasoning": f"Failed to parse comparison result: {str(e)}",
+                "submittal_evidence": "Error - empty LLM response",
+                "reasoning": "LLM provided empty response after tool execution",
             }
+            return state
+
+        # Parse JSON response with fallback to json-repair
+        result = None
+        json_repair_used = False
+
+        try:
+            # First attempt: standard JSON parsing
+            result = json.loads(final_content)
+            logger.debug("Successfully parsed JSON response on first attempt")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Initial JSON parsing failed: {e}")
+            logger.warning(f"LLM response content (first 500 chars): {final_content[:500]}")
+            logger.warning(f"Tool call count: {tool_call_count}")
+
+            # Try to extract any useful information from the response
+            if "verdict" in final_content.lower():
+                logger.info("Response contains 'verdict' keyword but is not valid JSON")
+
+            # Second attempt: Try to repair the JSON
+            try:
+                logger.info("Attempting to repair JSON using json-repair library")
+
+                # Strip markdown code fences if present
+                cleaned_content = final_content.strip()
+                if cleaned_content.startswith("```json"):
+                    cleaned_content = cleaned_content[7:]
+                elif cleaned_content.startswith("```"):
+                    cleaned_content = cleaned_content[3:]
+                if cleaned_content.endswith("```"):
+                    cleaned_content = cleaned_content[:-3]
+                cleaned_content = cleaned_content.strip()
+
+                # Attempt repair
+                repaired_json = repair_json(cleaned_content)
+                result = json.loads(repaired_json)
+                json_repair_used = True
+                logger.warning("Successfully repaired and parsed JSON response")
+                logger.info(f"Repaired JSON: {repaired_json[:200]}...")
+
+            except Exception as repair_error:
+                logger.error(f"JSON repair also failed: {repair_error}")
+                logger.error(f"Original error: {e}")
+
+                # Final fallback: return unclear verdict
+                state["result"] = {
+                    "verdict": "unclear",
+                    "confidence": 0.0,
+                    "submittal_evidence": "Error parsing LLM response",
+                    "reasoning": f"Failed to parse comparison result: {str(e)}. Repair attempt also failed: {str(repair_error)}. Response: {final_content[:200]}",
+                }
+                return state
+
+        # Validate result structure
+        if result is not None:
+            try:
+                required_fields = ["verdict", "confidence", "submittal_evidence", "reasoning"]
+                if not all(field in result for field in required_fields):
+                    logger.error(f"Missing required fields in LLM response: {result}")
+                    raise ValueError(f"Missing required fields: {[f for f in required_fields if f not in result]}")
+
+                # Validate verdict
+                if result["verdict"] not in ["consistent", "inconsistent", "unclear"]:
+                    logger.warning(f"Invalid verdict: {result['verdict']}, defaulting to 'unclear'")
+                    result["verdict"] = "unclear"
+
+                # Validate confidence
+                if not isinstance(result["confidence"], (int, float)) or not (
+                    0 <= result["confidence"] <= 1
+                ):
+                    logger.warning(f"Invalid confidence: {result['confidence']}, defaulting to 0.5")
+                    result["confidence"] = 0.5
+
+                state["result"] = result
+
+                # Log success with repair status
+                if json_repair_used:
+                    logger.warning(
+                        f"Comparison complete (JSON REPAIRED): verdict={result['verdict']}, confidence={result['confidence']:.2f}"
+                    )
+                else:
+                    logger.info(
+                        f"Comparison complete: verdict={result['verdict']}, confidence={result['confidence']:.2f}"
+                    )
+
+            except (ValueError, KeyError) as validation_error:
+                logger.error(f"Result validation failed: {validation_error}")
+                state["result"] = {
+                    "verdict": "unclear",
+                    "confidence": 0.0,
+                    "submittal_evidence": "Error validating LLM response",
+                    "reasoning": f"Result validation failed: {str(validation_error)}",
+                }
 
         return state
 

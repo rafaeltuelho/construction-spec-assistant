@@ -106,15 +106,35 @@ CONFIDENCE GUIDELINES:
 - 0.3-0.5: Weak evidence or significant ambiguity
 - 0.0-0.3: Very uncertain or conflicting information
 
-WEB SEARCH TOOL USAGE:
+DECISION-MAKING HIERARCHY:
+
+STEP 1 - ANALYZE SUBMITTAL CHUNKS (PRIMARY SOURCE):
+You will receive submittal document chunks as your PRIMARY source of information. Your first and most important task is to:
+1. Thoroughly analyze ALL provided submittal chunks
+2. Look for explicit statements, specifications, or data that address the requirement
+3. Consider context, qualifiers, and related information in the chunks
+4. Determine if the submittal provides sufficient information to make a clear verdict
+
+STEP 2 - DETERMINE VERDICT FROM SUBMITTAL ALONE:
+Based ONLY on the submittal chunks, decide:
+- If the submittal provides COMPLETE information that clearly matches the requirement → Return "consistent" with high confidence (0.7-1.0)
+- If the submittal provides COMPLETE information that clearly contradicts the requirement → Return "inconsistent" with high confidence (0.7-1.0)
+- If the submittal is AMBIGUOUS, INCOMPLETE, or MISSING critical details → Proceed to Step 3
+
+STEP 3 - WEB SEARCH (SECONDARY SOURCE - USE SPARINGLY):
 You have access to a web search tool (tavily_search) that can search for additional information when needed.
 
-WHEN TO USE WEB SEARCH:
-- The submittal information is incomplete or missing key details
-- You need to verify manufacturer specifications or product details
-- Technical standards or codes need clarification
-- The submittal mentions a product/model but doesn't provide full specifications
-- You need to understand industry standards or typical values for comparison
+ONLY use web search when:
+- The submittal chunks lack sufficient detail to make a confident determination
+- Technical specifications, product details, or manufacturer information are missing or unclear in the submittal
+- The submittal mentions a product/model but doesn't provide the specific attribute being compared
+- Industry standards or codes need clarification to interpret the submittal correctly
+- You need to verify manufacturer specifications that are referenced but not detailed in the submittal
+
+DO NOT use web search when:
+- The submittal already contains clear, complete information about the requirement
+- You can make a confident verdict based on the submittal chunks alone
+- The information gap is minor and doesn't affect the core comparison
 
 HOW TO USE WEB SEARCH:
 1. Formulate a specific search query focused on the missing information
@@ -126,13 +146,36 @@ HOW TO USE WEB SEARCH:
 4. After receiving search results, analyze them and incorporate findings into your verdict
 5. Cite web sources in your reasoning when using external information
 
-IMPORTANT:
+STEP 4 - PROVIDE CLEAR REASONING:
+In your reasoning field, always explain:
+- What information came from the submittal chunks
+- What information (if any) came from web search results
+- Why web search was necessary (if used)
+- How you arrived at your verdict
+
+IMPORTANT GUIDELINES:
 - Quote exact text from the submittal as evidence
 - Consider operator semantics (>=, <=, =, etc.)
 - For quantities, compare numerical values with proper unit conversion
-- Use web search strategically - only when submittal information is insufficient
+- Prioritize submittal information over web search results
+- Use web search strategically - only when submittal information is genuinely insufficient
 - Be conservative - when in doubt even after web search, use "unclear" verdict
 - Always cite sources when using web search results in your reasoning
+- If web search was used, explicitly state in reasoning: "Web search was used because [reason]"
+
+JSON OUTPUT FORMAT:
+You MUST respond with ONLY a valid JSON object. Follow these rules strictly:
+1. Return ONLY the JSON object - no markdown code fences (```json), no explanatory text before or after
+2. Use double quotes for all strings (not single quotes)
+3. Ensure all JSON is properly formatted and parseable
+4. All required fields must be present: verdict, confidence, submittal_evidence, reasoning
+5. Optional fields: web_evidence (if web search was used), primary_source
+6. The verdict must be exactly one of: "consistent", "inconsistent", or "unclear"
+7. The confidence must be a number between 0.0 and 1.0
+8. The primary_source must be one of: "submittal", "web", "both", or "neither"
+
+Example valid response:
+{"verdict": "consistent", "confidence": 0.9, "submittal_evidence": "Elevator capacity: 3500 lbs", "reasoning": "The submittal clearly states the capacity meets the requirement.", "primary_source": "submittal"}
 """
 
 
@@ -144,23 +187,32 @@ COMPARISON_PROMPT_TEMPLATE = """Compare the specification requirement against th
 - Attribute: {attribute}
 - Required Value: {operator} {value}
 
-**Submittal Information**:
+**Submittal Information (PRIMARY SOURCE)**:
 {context}
 
 **Task**:
-Determine if the submittal meets the specification requirement.
+1. FIRST: Thoroughly analyze the submittal information above to determine if it contains sufficient detail to make a clear verdict
+2. If the submittal provides complete information → Make your verdict based on the submittal alone
+3. ONLY if the submittal is incomplete or unclear → Use the web search tool to find additional information from manufacturer sites, technical documentation, or standards
+4. Provide your verdict in JSON format
 
-If the submittal information is insufficient or unclear, you may use the web search tool to find additional information from manufacturer sites, technical documentation, or standards.
-
-**Output Format** (JSON):
+**Output Format** (STRICT JSON ONLY):
 {{
   "verdict": "consistent" | "inconsistent" | "unclear",
   "confidence": 0.0-1.0,
-  "submittal_evidence": "Direct quote from submittal (or web source if used)",
-  "reasoning": "Clear explanation of your verdict (cite web sources if used)"
+  "submittal_evidence": "Direct quote from submittal (if used)",
+  "web_evidence": "Relevant information from web sources (if used)",
+  "reasoning": "Clear explanation of your verdict. If web search was used, explain why it was necessary and what information it provided.",
+  "primary_source": "submittal" | "web" | "both" | "neither"
 }}
 
-Provide ONLY the JSON response, no additional text.
+CRITICAL: Respond with ONLY the JSON object above. Do NOT include:
+- Markdown code fences (```json or ```)
+- Any explanatory text before the JSON
+- Any explanatory text after the JSON
+- Any comments or notes
+
+Your entire response must be valid, parseable JSON that starts with {{ and ends with }}.
 """
 
 

@@ -337,6 +337,14 @@ async def init_llm() -> None:
 
             logger.info(f"Initializing Together.ai client with model {settings.together_model}")
 
+            # NOTE: JSON mode is NOT enabled here because it conflicts with tool calling
+            # JSON mode requires "strict" function tools, which TavilySearch doesn't support
+            # Instead, we rely on:
+            # 1. Strong prompt instructions for JSON output
+            # 2. JSON format reminders after tool execution (in comparison_graph.py)
+            # 3. json-repair fallback for malformed responses
+            # This approach works with both tool calling and non-tool scenarios
+
             _llm_client = ChatTogether(
                 api_key=settings.together_api_key,
                 model=settings.together_model,
