@@ -118,6 +118,11 @@ async def compare_node(
     Returns:
         Updated state with comparison result
     """
+    # Initialize web search tracking variables at function level
+    # so they're accessible in all error paths
+    tool_call_count = 0
+    web_sources_collected = []
+
     try:
         spec_fact = state.get("spec_fact", {})
         retrieved_docs = state.get("retrieved_docs", [])
@@ -129,6 +134,11 @@ async def compare_node(
                 "confidence": 0.0,
                 "submittal_evidence": "No relevant information found in submittal",
                 "reasoning": "No documents were retrieved that match the specification requirement",
+                # Web search fields (no search performed in this error path)
+                "web_search_used": False,
+                "web_evidence": None,
+                "primary_source": None,
+                "web_sources": None,
             }
             return state
 
@@ -211,7 +221,7 @@ async def compare_node(
         response = await llm_with_tools.ainvoke(messages, config=config)
 
         # Handle tool calls if LLM decided to use web search
-        tool_call_count = 0
+        # tool_call_count and web_sources_collected are initialized at function level
         max_tool_calls = 3  # Prevent infinite loops (each iteration can have multiple tool calls)
 
         while (
@@ -245,6 +255,13 @@ async def compare_node(
                         # Call Tavily search
                         search_response = await search_tool.ainvoke(query)
                         search_results = search_response.get("results", [])
+
+                        # Collect web sources for result metadata (top 3 results)
+                        for r in search_results[:3]:
+                            web_sources_collected.append({
+                                "title": r.get("title", ""),
+                                "url": r.get("url", "")
+                            })
 
                         # Format results for LLM
                         tool_result = {
@@ -383,6 +400,11 @@ async def compare_node(
                         f"The comparison required more than {max_tool_calls} web search iterations. "
                         "Unable to complete evaluation within tool call limit."
                     ),
+                    # Web search fields (search was attempted but incomplete)
+                    "web_search_used": tool_call_count > 0,
+                    "web_evidence": None,
+                    "primary_source": None,
+                    "web_sources": web_sources_collected if web_sources_collected else None,
                 }
                 return state
 
@@ -398,6 +420,11 @@ async def compare_node(
                 "confidence": 0.0,
                 "submittal_evidence": "Error - empty LLM response",
                 "reasoning": "LLM provided empty response after tool execution",
+                # Web search fields
+                "web_search_used": tool_call_count > 0,
+                "web_evidence": None,
+                "primary_source": None,
+                "web_sources": web_sources_collected if web_sources_collected else None,
             }
             return state
 
@@ -450,6 +477,11 @@ async def compare_node(
                     "confidence": 0.0,
                     "submittal_evidence": "Error parsing LLM response",
                     "reasoning": f"Failed to parse comparison result: {str(e)}. Repair attempt also failed: {str(repair_error)}. Response: {final_content[:200]}",
+                    # Web search fields
+                    "web_search_used": tool_call_count > 0,
+                    "web_evidence": None,
+                    "primary_source": None,
+                    "web_sources": web_sources_collected if web_sources_collected else None,
                 }
                 return state
 
@@ -473,16 +505,39 @@ async def compare_node(
                     logger.warning(f"Invalid confidence: {result['confidence']}, defaulting to 0.5")
                     result["confidence"] = 0.5
 
+                # Add web search metadata fields
+                # web_search_used: True if Tavily search tool was called
+                result["web_search_used"] = tool_call_count > 0
+
+                # web_evidence: Extract from LLM response if present (optional field)
+                # The LLM may include this field in its JSON response
+                if "web_evidence" not in result:
+                    result["web_evidence"] = None
+
+                # primary_source: Extract from LLM response if present (optional field)
+                # The LLM should include this field per prompt instructions
+                if "primary_source" not in result:
+                    result["primary_source"] = None
+
+                # web_sources: List of web URLs that were searched
+                # Only populated if web search was actually used
+                if tool_call_count > 0 and web_sources_collected:
+                    result["web_sources"] = web_sources_collected
+                    logger.info(f"Added {len(web_sources_collected)} web sources to result")
+                else:
+                    result["web_sources"] = None
+
                 state["result"] = result
 
-                # Log success with repair status
+                # Log success with repair status and web search usage
+                web_search_status = " (web search used)" if tool_call_count > 0 else ""
                 if json_repair_used:
                     logger.warning(
-                        f"Comparison complete (JSON REPAIRED): verdict={result['verdict']}, confidence={result['confidence']:.2f}"
+                        f"Comparison complete (JSON REPAIRED){web_search_status}: verdict={result['verdict']}, confidence={result['confidence']:.2f}"
                     )
                 else:
                     logger.info(
-                        f"Comparison complete: verdict={result['verdict']}, confidence={result['confidence']:.2f}"
+                        f"Comparison complete{web_search_status}: verdict={result['verdict']}, confidence={result['confidence']:.2f}"
                     )
 
             except (ValueError, KeyError) as validation_error:
@@ -492,6 +547,11 @@ async def compare_node(
                     "confidence": 0.0,
                     "submittal_evidence": "Error validating LLM response",
                     "reasoning": f"Result validation failed: {str(validation_error)}",
+                    # Web search fields
+                    "web_search_used": tool_call_count > 0,
+                    "web_evidence": None,
+                    "primary_source": None,
+                    "web_sources": web_sources_collected if web_sources_collected else None,
                 }
 
         return state
@@ -504,6 +564,11 @@ async def compare_node(
             "confidence": 0.0,
             "submittal_evidence": "Error during comparison",
             "reasoning": f"Comparison failed: {str(e)}",
+            # Web search fields (use function-level variables)
+            "web_search_used": tool_call_count > 0,
+            "web_evidence": None,
+            "primary_source": None,
+            "web_sources": web_sources_collected if web_sources_collected else None,
         }
         return state
 

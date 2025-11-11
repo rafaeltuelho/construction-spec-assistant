@@ -175,7 +175,7 @@ You MUST respond with ONLY a valid JSON object. Follow these rules strictly:
 8. The primary_source must be one of: "submittal", "web", "both", or "neither"
 
 Example valid response:
-{"verdict": "consistent", "confidence": 0.9, "submittal_evidence": "Elevator capacity: 3500 lbs", "reasoning": "The submittal clearly states the capacity meets the requirement.", "primary_source": "submittal"}
+{"verdict": "consistent", "confidence": 0.9, "submittal_evidence": "Elevator capacity: 3500 lbs", "web_evidence": "Combination hall lantern/position indicator", "reasoning": "The submittal clearly states the capacity meets the requirement.", "primary_source": "submittal"}
 """
 
 
